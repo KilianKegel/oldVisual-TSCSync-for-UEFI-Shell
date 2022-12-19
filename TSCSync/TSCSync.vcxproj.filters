@@ -26,9 +26,6 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Library Include="..\lib\toroC64.lib" />
-  </ItemGroup>
-  <ItemGroup>
     <ClInclude Include="base_t.h">
       <Filter>Header Files</Filter>
     </ClInclude>

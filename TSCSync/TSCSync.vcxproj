@@ -143,7 +143,16 @@
       <DataExecutionPrevention>false</DataExecutionPrevention>
       <GenerateMapFile>true</GenerateMapFile>
       <LinkTimeCodeGeneration />
+      <AdditionalLibraryDirectories>$(SolutionDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
+      <AdditionalDependencies>toroC64.lib;LibWin324UEFI.lib</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">
     <ClCompile>
@@ -190,9 +199,6 @@
     <ClCompile Include="UefiBase.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>
-  </ItemGroup>
-  <ItemGroup>
-    <Library Include="..\lib\toroC64.lib" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="base_t.h" />

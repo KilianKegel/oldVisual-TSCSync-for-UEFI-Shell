@@ -1,6 +1,7 @@
 #include <stdio.h>
-#include <stdint.h>
 #include <stdarg.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <wchar.h>
@@ -304,25 +305,153 @@ int CTextWindow::TextPrint(RELPOS TxtPos, WINATT TxtAtt, const wchar_t* wcsFmt, 
 	return nRet;
 }
 
-void CTextWindow::TextBlockDraw(RELPOS BlkPos)
+void CTextWindow::TextBlockDraw(RELPOS BlockPos)
 {
 	wchar_t wcseol[] = { L"\n" };
 	size_t len = wcslen(this->pwcsBlockDrawBuf);
 	wchar_t* pcontext, *pwcs;
 	int32_t i = 0;
 
-	this->BlkPos = BlkPos;	// save block position
+	this->BlockPos = BlockPos;	// save block position
 
 	wmemcpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf, 1 + len);
 	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
 	do {
 		if (nullptr == pwcs)
 			break;
-		CTextWindow::TextPrint({ BlkPos.X,BlkPos.Y + i++ }, pwcs);
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
 		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
 	} while (1);
 }
 
+void CTextWindow::TextBlockDraw(RELPOS BlockPos, WINATT TxtAtt)
+{
+	wchar_t wcseol[] = { L"\n" };
+	size_t len = wcslen(this->pwcsBlockDrawBuf);
+	wchar_t* pcontext, * pwcs;
+	int32_t i = 0;
+
+	this->BlockPos = BlockPos;	// save block position
+	this->BlockAtt = TxtAtt;	// save block attribute
+
+	wmemcpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf, 1 + len);
+	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
+	do {
+		if (nullptr == pwcs)
+			break;
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
+		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
+	} while (1);
+}
+
+void CTextWindow::TextBlockDraw(RELPOS BlockPos, WINATT TxtAtt, const char* strFmt, ...)
+{
+	va_list ap;
+	wchar_t wcseol[] = { L"\n" };
+	wchar_t* pcontext = nullptr, * pwcs;
+	int32_t i = 0;
+
+	va_start(ap, strFmt);
+
+	this->BlockPos = BlockPos;	// save block position
+	this->BlockAtt = TxtAtt;	// save block attribute
+	//
+	// convert the narrow format string to wcs wide character string
+	//
+	vsprintf((char*)pwcsBlockScrtchBuf, (const char* const)strFmt, ap);	// abuse pwcsBlockScrtchBuf as char buffer temporarily
+	mbstowcs(pwcsBlockDrawBuf, (char*)pwcsBlockScrtchBuf, INT_MAX);		// convert string to wcs wide character string
+
+	wcscpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf);
+	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
+	do {
+		if (nullptr == pwcs)
+			break;
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
+		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
+	} while (1);
+	va_end(ap);
+}
+
+void CTextWindow::TextBlockDraw(RELPOS BlockPos, WINATT TxtAtt, const wchar_t* wcsFmt, ...)
+{
+	va_list ap;
+	wchar_t wcseol[] = { L"\n" };
+	wchar_t* pcontext = nullptr, * pwcs;
+	int32_t i = 0;
+
+	va_start(ap, wcsFmt);
+
+	this->BlockPos = BlockPos;	// save block position
+	this->BlockAtt = TxtAtt;	// save block attribute
+	//
+	// convert the format string to wcs wide character string
+	//
+	vswprintf(pwcsBlockDrawBuf, INT_MAX, wcsFmt, ap);
+
+	wcscpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf);
+	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
+	do {
+		if (nullptr == pwcs)
+			break;
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
+		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
+	} while (1);
+	va_end(ap);
+}
+
+void CTextWindow::TextBlockDraw(RELPOS BlockPos, const char* strFmt, ...)
+{
+	va_list ap;
+	wchar_t wcseol[] = { L"\n" };
+	wchar_t* pcontext = nullptr, * pwcs;
+	int32_t i = 0;
+
+
+	va_start(ap, strFmt);
+
+	this->BlockPos = BlockPos;	// save block position
+	//
+	// convert the narrow format string to wcs wide character string
+	//
+	vsprintf((char*)pwcsBlockScrtchBuf, strFmt, ap);					// abuse pwcsBlockScrtchBuf as char buffer temporarily
+	mbstowcs(pwcsBlockDrawBuf, (char*)pwcsBlockScrtchBuf, INT_MAX);		// convert string to wcs wide character string
+
+	wcscpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf);
+	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
+	do {
+		if (nullptr == pwcs)
+			break;
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
+		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
+	} while (1);
+	va_end(ap);
+}
+
+void CTextWindow::TextBlockDraw(RELPOS BlockPos, const wchar_t* wcsFmt, ...)
+{
+	va_list ap;
+	wchar_t wcseol[] = { L"\n" };
+	wchar_t* pcontext = nullptr, * pwcs;
+	int32_t i = 0;
+
+	va_start(ap, wcsFmt);
+
+	this->BlockPos = BlockPos;	// save block position
+	//
+	// convert the format string to wcs wide character string
+	//
+	vswprintf(pwcsBlockDrawBuf, INT_MAX, wcsFmt, ap);
+
+	wcscpy(this->pwcsBlockScrtchBuf, this->pwcsBlockDrawBuf);
+	pwcs = wcstok(this->pwcsBlockScrtchBuf, &wcseol[0], &pcontext);
+	do {
+		if (nullptr == pwcs)
+			break;
+		TextPrint({ BlockPos.X,BlockPos.Y + i++ }, BlockAtt, pwcs);
+		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
+	} while (1);
+	va_end(ap);
+}
 void CTextWindow::TextBlockRfrsh(void)
 {
 	wchar_t wcseol[] = { L"\n" };
@@ -335,7 +464,7 @@ void CTextWindow::TextBlockRfrsh(void)
 	do {
 		if (nullptr == pwcs)
 			break;
-		CTextWindow::TextPrint({ this->BlkPos.X,this->BlkPos.Y + i++ }, pwcs);
+		CTextWindow::TextPrint({ this->BlockPos.X,this->BlockPos.Y + i++ },BlockAtt, pwcs);
 		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
 	} while (1);
 }
@@ -353,7 +482,7 @@ void CTextWindow::TextBlockClear(void)
 		if (nullptr == pwcs)
 			break;
 		wmemset(pwcs, L'\x20', wcslen(pwcs));
-		CTextWindow::TextPrint({ this->BlkPos.X,this->BlkPos.Y + i++ }, pwcs);
+		CTextWindow::TextPrint({ this->BlockPos.X,this->BlockPos.Y + i++ }, pwcs);
 		pwcs = wcstok(nullptr, &wcseol[0], &pcontext);
 	} while (1);
 
@@ -415,7 +544,7 @@ void CTextWindow::TextWindowUpdateProgress(void) {				// update the progress ind
 		char strdatetime[32] = { "" };
 		char strdatetimeRightJustified[32] = { "" };
 
-		strftime(strtime, 32, gfCfgMngMnuItm_View_Clock ? "%H:%M:%S " : "", ptm);					// time string or ""
+		strftime(strtime, 32, gfCfgMngMnuItm_View_Clock ? "%H:%M:%S " : "", ptm);				// time string or ""
 		strftime(strdatetime, 32, gfCfgMngMnuItm_View_Calendar ? "%a %d %b %Y " : "", ptm);		// date string or ""
 		strcat(strdatetime, strtime);												// catenate both strings
 		snprintf(strdatetimeRightJustified, sizeof(strdatetimeRightJustified), "%31s", strdatetime);	// right justify both

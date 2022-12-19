@@ -1,3 +1,16 @@
+//
+// prefixes used:
+//	wcs - wide character string
+//	str - narrow character string
+//	fn	- function
+//  g	- global
+//  rg  - range, array
+//  idx	- index
+//	Mnu	- menu
+//  Itm	- item
+//  Mng	- managed
+//	Cfg	- config
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,9 +30,9 @@
 #include <IndustryStandard/Acpi62.h>
 #include <IndustryStandard/MemoryMappedConfigurationSpaceAccessTable.h>
 
-
 #include <Protocol\AcpiSystemDescriptionTable.h>
 
+extern "C" EFI_SYSTEM_TABLE * _cdegST;
 extern "C" EFI_SYSTEM_TABLE * gSystemTable;
 extern "C" EFI_HANDLE gImageHandle;
 
@@ -125,7 +138,7 @@ int rtcrd(int idx)
 // globally shared data
 //
 bool gExit = false;
-bool gHexView = true;
+bool gHexView = false;
 
 //
 // gfCfgMngXyz - global flag configuration managed XYZ
@@ -208,7 +221,7 @@ void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
 			errno = 0;
 			FILE* fp = fopen(strFileName, "r");
 			bool fFileExists = (NULL != fp);	// flag file exists
-			bool fCrtOvrd = !fFileExists;		// flag CreateOverride
+			bool fCreateOvrd = !fFileExists;	// flag CreateOverride
 
 			//
 			// FILE OVERRIDE CHECK BOX - start
@@ -221,8 +234,9 @@ void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
 				delete pSaveAsBox;												// delete SAVE AS BOX
 				pSaveAsBox = nullptr;											// prevent from second deletion below
 #define CBHIGHT 5												// CheckBox height
-				//#define CBWIDTH 30
 				char strtmp[256];
+
+				pRoot->TextBlockRfrsh();										// refresh the background
 
 				snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", strFileName);
 				int CBWIDTH/* CheckBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
@@ -250,7 +264,7 @@ void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
 					BOXDRAW_VERTICAL,
 					nullptr
 				);
-
+				
 				pCheckBox->TextPrint({ CBWIDTH / 2 - (int)strlen(strtmp) / 2,1 }, strtmp);
 
 				for (key = pThis->TextGetKey();
@@ -270,7 +284,7 @@ void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
 				// FILE OVERRIDE CHECK BOX - end
 				//
 				if (fYSel)
-					fCrtOvrd = true;
+					fCreateOvrd = true;
 				else {
 					wcscpy(wcsStatusBar, L"STATUS: ");
 					swprintf(
@@ -284,7 +298,7 @@ void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
 				}
 			}
 
-			if (fCrtOvrd)
+			if (fCreateOvrd)
 			{
 				errno = 0;
 				fp = fopen(strFileName, "w+");
@@ -340,7 +354,7 @@ void fnMnuItm_View_Calendar(CTextWindow* pThis, void* pContext)
 // gfCfgMngXyz - global flag configuration managed XYZ
 //
 bool gfCfgMngMnuItm_Config_PicApicSelect = true;	// "TIMER: PIC" vs. "TIMER: ACPI" APIC selected by default
-bool gfCfgMngMnuItm_Config_DelaySelect1 = true;	// "  PIC ddddd" / "  APIC ddddd" vs. " * PIC ddddd" / " * APIC ddddd"	selected by default
+bool gfCfgMngMnuItm_Config_DelaySelect1 = true;		// "  PIC ddddd" / "  APIC ddddd" vs. " * PIC ddddd" / " * APIC ddddd"	selected by default
 bool gfCfgMngMnuItm_Config_DelaySelect2 = false;	// "  PIC ddddd" / "  APIC ddddd" vs. " * PIC ddddd" / " * APIC ddddd"
 bool gfCfgMngMnuItm_Config_DelaySelect3 = false;	// "  PIC ddddd" / "  APIC ddddd" vs. " * PIC ddddd" / " * APIC ddddd"
 bool gfCfgMngMnuItm_Config_DelaySelect4 = false;	// "  PIC ddddd" / "  APIC ddddd" vs. " * PIC ddddd" / " * APIC ddddd"
@@ -362,11 +376,13 @@ const wchar_t* wcsTimerSelectionAcpiStrings[2][1] =
 	{ L"  TIMER: ACPI   "},
 	{ L"\x25ba TIMER: ACPI   "}
 };
+
 const wchar_t* wcsTimerDelayPicStrings[2][5] =
 {
 	{L"  PIC delay1    ",L"  PIC delay2    ",L"  PIC delay3    ",L"  PIC delay4    ",L"  PIC delay5    "},
 	{L"* PIC delay1    ",L"* PIC delay2    ",L"* PIC delay3    ",L"* PIC delay4    ",L"* PIC delay5    "},
 };
+
 const wchar_t* wcsTimerDelayApicStrings[2][5] =
 {
 	{L"  ACPI delay1   ",L"  ACPI delay2   ",L"  ACPI delay3   ",L"  ACPI delay4   ",L"  ACPI delay5   "},
@@ -421,6 +437,79 @@ void fnMnuItm_Timer_3(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot =
 void fnMnuItm_Timer_4(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_DelaySelect3 ^= 1;	pMenu->rgwcsMenuItem[5/* index 5 */] = (wchar_t*)(0 == gfCfgMngMnuItm_Config_PicApicSelect ? wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect3][0] : wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect3][0]);	pThis->TextClearWindow(pRoot->WinAtt); }
 void fnMnuItm_Timer_5(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_DelaySelect4 ^= 1;	pMenu->rgwcsMenuItem[6/* index 6 */] = (wchar_t*)(0 == gfCfgMngMnuItm_Config_PicApicSelect ? wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect4][0] : wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect4][0]);	pThis->TextClearWindow(pRoot->WinAtt); }
 void fnMnuItm_Timer_6(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_DelaySelect5 ^= 1;	pMenu->rgwcsMenuItem[7/* index 7 */] = (wchar_t*)(0 == gfCfgMngMnuItm_Config_PicApicSelect ? wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect5][0] : wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect5][0]);	pThis->TextClearWindow(pRoot->WinAtt); }
+
+int gidxCfgMngMnuItm_Config_NumSamples = 0;		// index of selected NumSamples 0/1/2/3, saved at program exit
+
+const wchar_t* wcsNumSamples[2][4] =
+{
+	{L"    10",L"    50",L"   250",L"  1250"},/* non-selected strings */
+	{L"*   10",L"*   50",L"*  250",L"* 1250"},/*     selected strings */
+};
+
+void fnMnuItm_NumSamples(CTextWindow* pThis, void* pContext)
+{ 
+	CTextWindow* pRoot = pThis->TextWindowGetRoot();
+	CTextWindow* pSubMnuTextWindow = new CTextWindow(
+		pThis,
+		{ pThis->WinPos.X + pThis->WinDim.X,pThis->WinPos.Y + pThis->WinDim.Y - 3 },
+		{ 10,6 },
+		EFI_BACKGROUND_CYAN | EFI_YELLOW);
+	menu_t* pMenu = (menu_t*)pContext;
+	int idxMnuItm = 0;
+	int idxMnuItmNUM = 4;		/* number of lines within the pulldown menu */;
+	TEXT_KEY key = NO_KEY;
+
+	pSubMnuTextWindow->TextBorder({ 0, 0 }, pSubMnuTextWindow->WinDim,
+		BOXDRAW_DOWN_RIGHT,
+		BOXDRAW_DOWN_LEFT,
+		BOXDRAW_UP_RIGHT,
+		BOXDRAW_UP_LEFT,
+		BOXDRAW_HORIZONTAL,
+		BOXDRAW_VERTICAL,
+		nullptr);
+
+	//
+	// fill menu with menuitem strings at once
+	//
+	pSubMnuTextWindow->TextBlockDraw({ 2,1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW, L"%s\n%s\n%s\n%s",
+		wcsNumSamples[0 == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][0],
+		wcsNumSamples[1 == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][1],
+		wcsNumSamples[2 == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][2],
+		wcsNumSamples[3 == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][3]
+		);
+	// highlight the first string initially
+	pSubMnuTextWindow->TextPrint({ 2,1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, wcsNumSamples[0 == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);
+
+	//
+	// "Message"-Loop, receive keyboard messages...
+	//
+	for (	key = NO_KEY;
+			KEY_ESC != key && KEY_ENTER != key; 
+			key = pThis->TextGetKey(), 
+				pThis->TextWindowUpdateProgress()
+		)
+	{
+		if (KEY_DOWN == key) {
+
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW, wcsNumSamples[idxMnuItm == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);	// de-highlight previous menu item
+			idxMnuItm = (++idxMnuItm == idxMnuItmNUM ? 0 : idxMnuItm);
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, wcsNumSamples[idxMnuItm == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);	// de-highlight previous menu item
+		}
+		else if (KEY_UP == key) {
+
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW, wcsNumSamples[idxMnuItm == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);	// de-highlight previous menu item
+			idxMnuItm = (--idxMnuItm < 0 ? idxMnuItmNUM - 1 : idxMnuItm);
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, wcsNumSamples[idxMnuItm == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);	// de-highlight previous menu item
+		}
+	}
+	// save, if selected with ENTER, skip if ESC
+	if (KEY_ENTER == key)
+		gidxCfgMngMnuItm_Config_NumSamples = idxMnuItm;
+
+	pSubMnuTextWindow->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;
+	delete pSubMnuTextWindow->pParent;									// destroy the CONFIG menu window
+	delete pSubMnuTextWindow;											// destroy the SUBMENU window
+}
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -556,12 +645,12 @@ int main(int argc, char** argv)
 	//
 	if (1)
 	{
-		FILE* fp = fopen("welcome14.cfg", "r");
+		FILE* fp = fopen("tscsync.cfg", "r");
 
 		if (nullptr != fp)
 		{
 			printf("reading cfg file\n");
-			int tok = fscanf(fp, "gfCfgMngMnuItm_View_Clock = %hhu\ngfCfgMngMnuItm_View_Calendar = %hhu\ngfCfgMngMnuItm_Config_PicApicSelect = %hhu\ngfCfgMngMnuItm_Config_DelaySelect1 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect2 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect3 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect4 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect5 = %hhu",
+			int tok = fscanf(fp, "gfCfgMngMnuItm_View_Clock = %hhu\ngfCfgMngMnuItm_View_Calendar = %hhu\ngfCfgMngMnuItm_Config_PicApicSelect = %hhu\ngfCfgMngMnuItm_Config_DelaySelect1 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect2 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect3 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect4 = %hhu\ngfCfgMngMnuItm_Config_DelaySelect5 = %hhu\ngidxCfgMngMnuItm_Config_NumSamples = %d",
 				(char*)&gfCfgMngMnuItm_View_Clock,
 				(char*)&gfCfgMngMnuItm_View_Calendar,
 				(char*)&gfCfgMngMnuItm_Config_PicApicSelect,
@@ -569,14 +658,15 @@ int main(int argc, char** argv)
 				(char*)&gfCfgMngMnuItm_Config_DelaySelect2,
 				(char*)&gfCfgMngMnuItm_Config_DelaySelect3,
 				(char*)&gfCfgMngMnuItm_Config_DelaySelect4,
-				(char*)&gfCfgMngMnuItm_Config_DelaySelect5
+				(char*)&gfCfgMngMnuItm_Config_DelaySelect5,
+				(int*)&gidxCfgMngMnuItm_Config_NumSamples
 			);
 
-			printf("tok %d\ngfCfgMngMnuItm_View_Clock %d\ngfCfgMngMnuItm_View_Calendar %d\n", tok, gfCfgMngMnuItm_View_Clock, gfCfgMngMnuItm_View_Calendar);
+			//printf("tok %d\ngfCfgMngMnuItm_View_Clock %d\ngfCfgMngMnuItm_View_Calendar %d\n", tok, gfCfgMngMnuItm_View_Clock, gfCfgMngMnuItm_View_Calendar);
 		}
 	}
 
-	printf("sizeof(bool) %zd\n", sizeof(bool));
+	//printf("sizeof(bool) %zd\n", sizeof(bool));
 
 	do
 	{
@@ -589,7 +679,7 @@ int main(int argc, char** argv)
 			{{04,0},	L" File ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false},*/ {L"Save As         ",L"Exit            "},{&fnMnuItm_File_SaveAs, &fnMnuItm_File_Exit}},
 			{{12,0},	L" View ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Hex/Sym view    ",L"Clock           ",L"Calendar        " },{&fnMnuItm_View_HexSym,&fnMnuItm_View_Clock,&fnMnuItm_View_Calendar}},
 			{{20,0},	L" Help ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false, false},*/ {L"About           ",L"KEYBOARD DEBUG  "},{&fnMnuItm_About_0, &fnMnuItm_About_1 }},
-			{{28,0},	L" CONFIG ",	nullptr,{20,10/* # menuitems + 2 */},	/*{false, false, true, false},*/
+			{{28,0},	L" CONFIG ",	nullptr,{20,12/* # menuitems + 2 */},	/*{false, false, true, false},*/
 				{
 					/*index 0 */ wcsTimerSelectionAcpiStrings[gfCfgMngMnuItm_Config_PicApicSelect][0]		/*L"  TIMER: ACPI   "*//* selected by default */,
 					/*index 1 */ wcsTimerSelectionPicStrings[!gfCfgMngMnuItm_Config_PicApicSelect][0]		/*L"  TIMER: PIC    "*/,
@@ -599,8 +689,11 @@ int main(int argc, char** argv)
 					/*index 5 */ wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect3][2],
 					/*index 6 */ wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect4][3],
 					/*index 7 */ wcsTimerDelayApicStrings[gfCfgMngMnuItm_Config_DelaySelect5][4],
+					/*index 8 */ wcsSeparator17,
+					/*index 9 */ L"  NumSamples # \x25BA",
 				},
-				{	/*index 0 */ &fnMnuItm_Timer_0,
+				{
+				/*index 0 */ &fnMnuItm_Timer_0,
 				/*index 1 */ &fnMnuItm_Timer_1,
 				/*index 2 */ nullptr/* nullptr identifies SEPARATOR */,
 				/*index 3 */ &fnMnuItm_Timer_2,
@@ -608,6 +701,8 @@ int main(int argc, char** argv)
 				/*index 5 */ &fnMnuItm_Timer_4,
 				/*index 6 */ &fnMnuItm_Timer_5,
 				/*index 7 */ &fnMnuItm_Timer_6,
+				/*index 8 */ nullptr/* nullptr identifies SEPARATOR */,
+				/*index 9 */ &fnMnuItm_NumSamples,
 			}
 		}
 		};
@@ -758,7 +853,7 @@ int main(int argc, char** argv)
 						//
 						// fill menu with menuitem strings
 						//
-						menu[idxMenu].pTextWindow->pwcsBlockDrawBuf[0] = '\0';	// initially terminate the string list
+						menu[idxMenu].pTextWindow->pwcsBlockDrawBuf[0] = '\0';		// initially terminate the string list
 
 						for (int i = 0; /* NOTE: check for NULL string to terminate the list */menu[idxMenu].rgwcsMenuItem[i]; i++)
 						{
@@ -767,7 +862,7 @@ int main(int argc, char** argv)
 
 							swprintf(&wcsList[x], UINT_MAX, L"%s\n", menu[idxMenu].rgwcsMenuItem[i]);
 						}
-						menu[idxMenu].pTextWindow->TextBlockDraw({ 2, 1 });
+						menu[idxMenu].pTextWindow->TextBlockDraw({ 2, 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
 						idxMnuItm = 0;
 						menu[idxMenu].pTextWindow->TextPrint({ 2,1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, menu[idxMenu].rgwcsMenuItem[0]);
 						//__debugbreak();
@@ -818,174 +913,10 @@ int main(int argc, char** argv)
 						key = NO_KEY;
 					if (true == gHexView)
 					{
-						//	//
-						//	//	refresh the FullScreen Window
-						//	//
-						//	FullScreen.pwcsBlockDrawBuf[0] = '\0';
-						//	for (int i = 0; i < 128 / TYPESIZE; i++)
-						//		swprintf(&FullScreen.pwcsBlockDrawBuf[wcslen(FullScreen.pwcsBlockDrawBuf)],
-						//			(const size_t)8192,
-						//			(i % (16 / TYPESIZE) == 0 ? FORMATW_ADDR : FORMATWOADDR),
-						//			(i % (16 / TYPESIZE) == 0 ? (void*)(i * TYPESIZE) : L""),
-						//			TYPEMASK & RTCRD(i * TYPESIZE),
-						//			((i + 1) % (16 / TYPESIZE)) ? (((i + 1) % (8 / TYPESIZE)) ? L" " : L" - ") : L"\n");
-
-						//	FullScreen.TextBlockDraw({ FullScreen.WinPos.X + 3, FullScreen.WinPos.Y + 3 });
+						FullScreen.TextBlockDraw({ 5,13 }, EFI_BACKGROUND_BLUE | EFI_WHITE, "This is not a love song, This is not a love song, This is not a love song ...");
 					}
 					else {
-						////
-						//// NOTE:The RTC handling below is TOO SIMPLE, because it IGNORES the UIP Update In Progress phase. 
-						////      During that phase registers (calendar registers) have indetermined values.
-						////      For that reason "%" division and string-length-equality is done for indexed strings.
-						////
-						//static char* wday_name_long[7] = {
-						//	"Sunday",
-						//	"Monday",
-						//	"Tuesday",
-						//	"Wednesday",
-						//	"Thursday",
-						//	"Friday",
-						//	"Saturday" };
-						//static char* mon_name_long[12] = {
-						//	"January",
-						//	"February",
-						//	"March",
-						//	"April",
-						//	"May",
-						//	"June",
-						//	"July",
-						//	"August",
-						//	"September",
-						//	"October",
-						//	"November",
-						//	"December" };
-
-						//FullScreen.pwcsBlockDrawBuf[0] = '\0';
-						//#define ENDOFDRAWBUF &FullScreen.pwcsBlockDrawBuf[wcslen(FullScreen.pwcsBlockDrawBuf)]
-
-						//swprintf(ENDOFDRAWBUF, (const size_t)INT_MAX,
-						//	L"Date/Time: %hs, %X. %hs %02X%02X, %02X:%02X,%02X \n",
-						//	wday_name_long[(rtcrd(6)) % 7],
-						//	rtcrd(7),
-						//	mon_name_long[-1 + (rtcrd(8)) % 12],
-						//	rtcrd(0x32), rtcrd(9),
-						//	0xFF & rtcrd(4),
-						//	0xFF & rtcrd(2),
-						//	0xFF & rtcrd(0)
-						//);
-						//swprintf(ENDOFDRAWBUF, (const size_t)INT_MAX,
-						//	L" \nAlarm    : %02X:%02X,%02X \n", 0xFF & rtcrd(5), 0xFF & rtcrd(3), 0xFF & rtcrd(1));
-
-						////
-						//// register A
-						////
-						//typedef union _regA {
-						//	uint8_t reg;
-						//	struct {
-						//		uint8_t RegA_RS0 : 1;
-						//		uint8_t RegA_RS1 : 1;
-						//		uint8_t RegA_RS2 : 1;
-						//		uint8_t RegA_RS3 : 1;
-						//		uint8_t RegA_DV0 : 1;
-						//		uint8_t RegA_DV1 : 1;
-						//		uint8_t RegA_DV2 : 1;
-						//		uint8_t RegA_UIP : 1;
-						//	}field;
-						//}REGA;
-						//REGA RegA;
-						//RegA.reg = (uint8_t)RTCRD(0x0A);
-						//swprintf(ENDOFDRAWBUF, INT_MAX, L" \nRegister A:\n    UIP %d, DV2 %d, DV1 %d, DV0 %d, RS3 %d, RS2 %d, RS1 %d, RS0 %d\n",
-						//	RegA.field.RegA_RS0,
-						//	RegA.field.RegA_RS1,
-						//	RegA.field.RegA_RS2,
-						//	RegA.field.RegA_RS3,
-						//	RegA.field.RegA_DV0,
-						//	RegA.field.RegA_DV1,
-						//	RegA.field.RegA_DV2,
-						//	RegA.field.RegA_UIP);
-
-						////
-						//// register B
-						////
-						//typedef union _regB {
-						//	uint8_t reg;
-						//	struct {
-						//		uint8_t RegB_DSE : 1;
-						//		uint8_t RegB_C2412 : 1;
-						//		uint8_t RegB_DM : 1;
-						//		uint8_t RegB_SQWE : 1;
-						//		uint8_t RegB_UIE : 1;
-						//		uint8_t RegB_AIE : 1;
-						//		uint8_t RegB_PIE : 1;
-						//		uint8_t RegB_SET : 1;
-						//	}field;
-						//}REGB;
-						//REGB RegB;
-						//RegB.reg = (uint8_t)RTCRD(0x0B);
-						//swprintf(ENDOFDRAWBUF, INT_MAX, L" \nRegister B:\n    SET %d, PIE %d, AIE %d, UIE %d, SQWE %d, DM %d, 24/12 %d, DSE %d\n",
-						//	RegB.field.RegB_SET,
-						//	RegB.field.RegB_PIE,
-						//	RegB.field.RegB_AIE,
-						//	RegB.field.RegB_UIE,
-						//	RegB.field.RegB_SQWE,
-						//	RegB.field.RegB_DM,
-						//	RegB.field.RegB_C2412,
-						//	RegB.field.RegB_DSE);
-						////
-						//// register C
-						////
-						//typedef union _regC {
-						//	uint8_t reg;
-						//	struct {
-						//		uint8_t RegC_B0 : 1;
-						//		uint8_t RegC_B1 : 1;
-						//		uint8_t RegC_B2 : 1;
-						//		uint8_t RegC_B3 : 1;
-						//		uint8_t RegC_UF : 1;
-						//		uint8_t RegC_AF : 1;
-						//		uint8_t RegC_PF : 1;
-						//		uint8_t RegC_IRQF : 1;
-						//	}field;
-						//}REGC;
-						//REGC RegC;
-						//RegC.reg = (uint8_t)RTCRD(0x0C);
-						//swprintf(ENDOFDRAWBUF, INT_MAX, L" \nRegister C:\n    IRQF %d, PF %d, AF %d, UF %d, B3 %d, B2 %d, B1 %d, B0 %d\n",
-						//	RegC.field.RegC_IRQF,
-						//	RegC.field.RegC_PF,
-						//	RegC.field.RegC_AF,
-						//	RegC.field.RegC_UF,
-						//	RegC.field.RegC_B3,
-						//	RegC.field.RegC_B2,
-						//	RegC.field.RegC_B1,
-						//	RegC.field.RegC_B0);
-						////
-						//// register D
-						////
-						//typedef union _regD {
-						//	uint8_t reg;
-						//	struct {
-						//		uint8_t RegD_B0 : 1;
-						//		uint8_t RegD_B1 : 1;
-						//		uint8_t RegD_B2 : 1;
-						//		uint8_t RegD_B3 : 1;
-						//		uint8_t RegD_B4 : 1;
-						//		uint8_t RegD_B5 : 1;
-						//		uint8_t RegD_B6 : 1;
-						//		uint8_t RegD_VRT : 1;
-						//	}field;
-						//}REGD;
-						//REGD RegD;
-						//RegD.reg = (uint8_t)RTCRD(0x0D);
-						//swprintf(ENDOFDRAWBUF, INT_MAX, L" \nRegister D:\n    VRT %d, B6 %d, B5 %d, B4 %d, B3 %d, B2 %d, B1 %d, B0 %d\n",
-						//	RegD.field.RegD_VRT,
-						//	RegD.field.RegD_B6,
-						//	RegD.field.RegD_B5,
-						//	RegD.field.RegD_B4,
-						//	RegD.field.RegD_B3,
-						//	RegD.field.RegD_B2,
-						//	RegD.field.RegD_B1,
-						//	RegD.field.RegD_B0);
-						//FullScreen.TextBlockDraw({ FullScreen.WinPos.X + 3, FullScreen.WinPos.Y + 3 });
+						FullScreen.TextBlockDraw({ 5,13 }, EFI_BACKGROUND_RED | EFI_WHITE, L"THIS IS NOT A LOVE SONG, THIS IS NOT A LOVE SONG, THIS IS NOT A LOVE SONG ...");
 					}
 					break;
 				default:break;
@@ -1006,13 +937,11 @@ int main(int argc, char** argv)
 	//
 	if (1)
 	{
-		FILE* fp = fopen("welcome14.cfg", "w");
+		FILE* fp = fopen("tscsync.cfg", "w");
 
 		if (nullptr != fp)
 		{
-			//printf("save cfg file\n");
-
-			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\ngfCfgMngMnuItm_View_Calendar = %hhd\ngfCfgMngMnuItm_Config_PicApicSelect = %hhd\ngfCfgMngMnuItm_Config_DelaySelect1 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect2 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect3 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect4 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect5 = %hhd",
+			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\ngfCfgMngMnuItm_View_Calendar = %hhd\ngfCfgMngMnuItm_Config_PicApicSelect = %hhd\ngfCfgMngMnuItm_Config_DelaySelect1 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect2 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect3 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect4 = %hhd\ngfCfgMngMnuItm_Config_DelaySelect5 = %hhd\ngidxCfgMngMnuItm_Config_NumSamples = %d\n",
 				gfCfgMngMnuItm_View_Clock,
 				gfCfgMngMnuItm_View_Calendar,
 				gfCfgMngMnuItm_Config_PicApicSelect,
@@ -1020,8 +949,12 @@ int main(int argc, char** argv)
 				gfCfgMngMnuItm_Config_DelaySelect2,
 				gfCfgMngMnuItm_Config_DelaySelect3,
 				gfCfgMngMnuItm_Config_DelaySelect4,
-				gfCfgMngMnuItm_Config_DelaySelect5
+				gfCfgMngMnuItm_Config_DelaySelect5,
+				gidxCfgMngMnuItm_Config_NumSamples
+
 			);
+			fclose(fp);
+			system("attrib +h tscsync.cfg");
 		}
 	}
 
