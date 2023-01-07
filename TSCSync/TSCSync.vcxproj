@@ -190,9 +190,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AcpiClkWait.c" />
     <ClCompile Include="main.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>
+    <ClCompile Include="PITClkWait.c" />
     <ClCompile Include="TextWindow.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>

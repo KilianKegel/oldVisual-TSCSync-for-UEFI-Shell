@@ -24,6 +24,12 @@
     <ClCompile Include="UefiBase.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="AcpiClkWait.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="PITClkWait.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="base_t.h">
