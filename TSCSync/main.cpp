@@ -64,7 +64,7 @@ extern "C" WINBASEAPI UINT WINAPI GetSystemFirmwareTable(
 
 extern "C" WINBASEAPI uint64_t WINAPI GetTickCount64(VOID);
 
-extern void (*rgcbAtUpdate[32])(void* pThis, void* pBox, void* pContext);
+extern void (*rgcbAtUpdate[32])(void* pThis, void* pBox, void* pContext, void* pParm);
 extern void* rgcbAtUpdateParms[32][3];	// array of parameters: void* pThis, void* pBox, void* pContext
 
 #define TYPE char
@@ -90,7 +90,7 @@ typedef struct {
 	CTextWindow* pTextWindow;
 	ABSDIM MnuDim;
 	const wchar_t* rgwcsMenuItem[32];								// max. number of menu items is currently 32
-	void (*rgfnMnuItm[32])(CTextWindow*, void* pContext);	// max. number of menu items is currently 32
+	int (*rgfnMnuItm[32])(CTextWindow*, void* pContext, void* pParm);	// max. number of menu items is currently 32
 }menu_t;
 
 //void invalid_parameter_handler(
@@ -154,209 +154,233 @@ bool gfCfgMngMnuItm_View_Calendar = true;
 /////////////////////////////////////////////////////////////////////////////
 // FILE menu functions and strings
 /////////////////////////////////////////////////////////////////////////////
-void fnMnuItm_File_Exit(CTextWindow* pThis, void* pContext)
+int fnMnuItm_File_Exit(CTextWindow* pThis, void* pContext, void* pParm)
 {
-	pThis->TextPrint({ 20,20 }, "fnMnuItm_File_Exit...");
-	gfExit = true;
+	int nRet = 0;
+
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	{
+		pThis->TextPrint({ 20,20 }, "fnMnuItm_File_Exit...");
+		gfExit = true;
+	}
+	return 0;
 }
 
-void fnMnuItm_File_SaveExit(CTextWindow* pThis, void* pContext)
+int fnMnuItm_File_SaveExit(CTextWindow* pThis, void* pContext, void* pParm)
 {
-	//pThis->TextPrint({ 20,20 }, "fnMnuItm_File_Exit...");
-	gfExit = true;
-	gfSaveExit = true;
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	{
+		gfExit = true;
+		gfSaveExit = true;
+	}
+	return 0;
 }
 
-void fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext)
+int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 {
 	CTextWindow* pSaveAsBox;
 	CTextWindow* pRoot = pThis->TextWindowGetRoot();	// get FullScreen window
 	char strFileName[256] = { "" };
 
-	pThis->TextClearWindow(pRoot->WinAtt);				// clear the pull down menu 
-	pRoot->TextBlockRfrsh();							// refresh the main window
-
-	pSaveAsBox = new CTextWindow(pThis, { pRoot->WinDim.X / 2 - 60 / 2,pRoot->WinDim.Y / 2 - 5 / 2 }, { 60,5 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
-
-	pSaveAsBox->TextBorder(
-		{ 0,0 },
-		{ 60,5 },
-		BOXDRAW_DOWN_RIGHT,
-		BOXDRAW_DOWN_LEFT,
-		BOXDRAW_UP_RIGHT,
-		BOXDRAW_UP_LEFT,
-		BOXDRAW_HORIZONTAL,
-		BOXDRAW_VERTICAL,
-		nullptr
-	);
-
-	pSaveAsBox->TextPrint({ 2,0 }, " File Save As ... ");
-	pSaveAsBox->TextPrint({ 2,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, "                                                        ");
-
-	//
-	// simulate the "SAVE-AS dialog box"
-	//
-	if (1)
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
 	{
-		int i = 0;
-		TEXT_KEY key;
-		for (key = pThis->TextGetKey();
-			KEY_ESC != key && KEY_ENTER != key;
-			key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
+		pThis->TextClearWindow(pRoot->WinAtt);				// clear the pull down menu 
+		pRoot->TextBlockRfrsh();							// refresh the main window
+
+		pSaveAsBox = new CTextWindow(pThis, { pRoot->WinDim.X / 2 - 60 / 2,pRoot->WinDim.Y / 2 - 5 / 2 }, { 60,5 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
+
+		pSaveAsBox->TextBorder(
+			{ 0,0 },
+			{ 60,5 },
+			BOXDRAW_DOWN_RIGHT,
+			BOXDRAW_DOWN_LEFT,
+			BOXDRAW_UP_RIGHT,
+			BOXDRAW_UP_LEFT,
+			BOXDRAW_HORIZONTAL,
+			BOXDRAW_VERTICAL,
+			nullptr
+		);
+
+		pSaveAsBox->TextPrint({ 2,0 }, " File Save As ... ");
+		pSaveAsBox->TextPrint({ 2,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, "                                                        ");
+
+		//
+		// simulate the "SAVE-AS dialog box"
+		//
+		if (1)
 		{
-
-			pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, strFileName);
-			pSaveAsBox->TextPrint({ 2 + i,2 }, 4 & blink++ ? EFI_BACKGROUND_RED | EFI_WHITE : EFI_BACKGROUND_BLUE | EFI_WHITE, " ");//blink the cursor
-
-			//debug pSaveAsBox->TextPrint({ 0,0 }, "%3d %04X", i, pThis->KeyData.Key.UnicodeChar);
-
-			if (0xFFFF != pThis->KeyData.Key.UnicodeChar
-				&& 0x0000 != pThis->KeyData.Key.UnicodeChar)
+			int i = 0;
+			TEXT_KEY key;
+			for (key = pThis->TextGetKey();
+				KEY_ESC != key && KEY_ENTER != key;
+				key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
 			{
-				if ('\b'/* back space */ == (char)pThis->KeyData.Key.UnicodeChar)
-					pSaveAsBox->TextPrint({ 2 + i,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, " "),	// clear old cursor
-					i--;																	// adjust new curor position
-				else
-					strFileName[i++] = (char)pThis->KeyData.Key.UnicodeChar;
 
-				strFileName[i] = '\0';
-			}
-		}
+				pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, strFileName);
+				pSaveAsBox->TextPrint({ 2 + i,2 }, 4 & blink++ ? EFI_BACKGROUND_RED | EFI_WHITE : EFI_BACKGROUND_BLUE | EFI_WHITE, " ");//blink the cursor
 
-		if (KEY_ESC == key)
-			wcscpy(wcsStatusBar, L"STATUS: cancled"),
-			gStatusStringColor = EFI_GREEN,
-			blink = 0x3C;
+				//debug pSaveAsBox->TextPrint({ 0,0 }, "%3d %04X", i, pThis->KeyData.Key.UnicodeChar);
 
-		if (KEY_ENTER == key) do
-		{
-			errno = 0;
-			FILE* fp = fopen(strFileName, "r");
-			bool fFileExists = (NULL != fp);	// flag file exists
-			bool fCreateOvrd = !fFileExists;	// flag CreateOverride
-
-			//
-			// FILE OVERRIDE CHECK BOX - start
-			//
-			if (true == fFileExists)
-			{
-				bool fYSel = false;												// YES/NO selected := NO
-
-				pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete SAVE AS BOX
-				delete pSaveAsBox;												// delete SAVE AS BOX
-				pSaveAsBox = nullptr;											// prevent from second deletion below
-#define CBHIGHT 5												// CheckBox height
-				char strtmp[256];
-
-				pRoot->TextBlockRfrsh();										// refresh the background
-
-				snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", strFileName);
-				int CBWIDTH/* CheckBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
-
-				CTextWindow* pCheckBox = new CTextWindow(						// create Y/N CHECK BOX
-					pThis,
-					{ pRoot->WinDim.X / 2 - CBWIDTH / 2,pRoot->WinDim.Y / 2 - CBHIGHT / 2 },
-					{ CBWIDTH,CBHIGHT },
-					EFI_BACKGROUND_CYAN | EFI_YELLOW
-				);
-				// 00000000001111111111
-				// 01234567890123456789
-				// +------------------+
-				// |    YES     NO    |
-				// +------------------+
-
-				pCheckBox->TextBorder(
-					{ 0,0 },
-					{ CBWIDTH,CBHIGHT },
-					BOXDRAW_DOWN_RIGHT,
-					BOXDRAW_DOWN_LEFT,
-					BOXDRAW_UP_RIGHT,
-					BOXDRAW_UP_LEFT,
-					BOXDRAW_HORIZONTAL,
-					BOXDRAW_VERTICAL,
-					nullptr
-				);
-				
-				pCheckBox->TextPrint({ CBWIDTH / 2 - (int)strlen(strtmp) / 2,1 }, strtmp);
-
-				for (key = pThis->TextGetKey();
-					KEY_ENTER != key && KEY_ESC != key;
-					key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
+				if (0xFFFF != pThis->KeyData.Key.UnicodeChar
+					&& 0x0000 != pThis->KeyData.Key.UnicodeChar)
 				{
-					if (KEY_LEFT == key || KEY_RIGHT == key)
-						fYSel ^= true;											// YES/NO selection toggle
+					if ('\b'/* back space */ == (char)pThis->KeyData.Key.UnicodeChar)
+						pSaveAsBox->TextPrint({ 2 + i,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, " "),	// clear old cursor
+						i--;																	// adjust new curor position
+					else
+						strFileName[i++] = (char)pThis->KeyData.Key.UnicodeChar;
 
-					pCheckBox->TextPrint({ CBWIDTH / 2 - 7,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_GREEN : EFI_BACKGROUND_CYAN) | EFI_WHITE, "  YES  ");
-					pCheckBox->TextPrint({ CBWIDTH / 2 + 1,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_CYAN : EFI_BACKGROUND_GREEN) | EFI_WHITE, "  NO  ");
-				}
-				pCheckBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete Y/N CHECK BOX
-				delete pCheckBox;												// delete Y/N CHECK BOX
-
-				//
-				// FILE OVERRIDE CHECK BOX - end
-				//
-				if (fYSel)
-					fCreateOvrd = true;
-				else {
-					wcscpy(wcsStatusBar, L"STATUS: ");
-					swprintf(
-						&wcsStatusBar[wcslen(wcsStatusBar)],
-						sizeof(STATUSSTRING) - 1,
-						L"%hs",
-						strerror(EACCES)
-					);
-					gStatusStringColor = EFI_RED;
-					blink = UINT_MAX & ~3;
+					strFileName[i] = '\0';
 				}
 			}
 
-			if (fCreateOvrd)
+			if (KEY_ESC == key)
+				wcscpy(wcsStatusBar, L"STATUS: cancled"),
+				gStatusStringColor = EFI_GREEN,
+				blink = 0x3C;
+
+			if (KEY_ENTER == key) do
 			{
 				errno = 0;
-				fp = fopen(strFileName, "w+");
-				fFileExists = (NULL != fp);
-				swprintf(wcsStatusBar, sizeof(STATUSSTRING) - 1, L"%hs",
-					fFileExists ? "STATUS: Success" : strerror(errno));
-				gStatusStringColor = fFileExists ? EFI_GREEN : EFI_RED;
-				blink = fFileExists ? 0x3C : UINT_MAX & ~3;
-			}
+				FILE* fp = fopen(strFileName, "r");
+				bool fFileExists = (NULL != fp);	// flag file exists
+				bool fCreateOvrd = !fFileExists;	// flag CreateOverride
 
-		} while (0);
+				//
+				// FILE OVERRIDE CHECK BOX - start
+				//
+				if (true == fFileExists)
+				{
+					bool fYSel = false;												// YES/NO selected := NO
+
+					pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete SAVE AS BOX
+					delete pSaveAsBox;												// delete SAVE AS BOX
+					pSaveAsBox = nullptr;											// prevent from second deletion below
+#define CBHIGHT 5												// CheckBox height
+					char strtmp[256];
+
+					pRoot->TextBlockRfrsh();										// refresh the background
+
+					snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", strFileName);
+					int CBWIDTH/* CheckBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
+
+					CTextWindow* pCheckBox = new CTextWindow(						// create Y/N CHECK BOX
+						pThis,
+						{ pRoot->WinDim.X / 2 - CBWIDTH / 2,pRoot->WinDim.Y / 2 - CBHIGHT / 2 },
+						{ CBWIDTH,CBHIGHT },
+						EFI_BACKGROUND_CYAN | EFI_YELLOW
+					);
+					// 00000000001111111111
+					// 01234567890123456789
+					// +------------------+
+					// |    YES     NO    |
+					// +------------------+
+
+					pCheckBox->TextBorder(
+						{ 0,0 },
+						{ CBWIDTH,CBHIGHT },
+						BOXDRAW_DOWN_RIGHT,
+						BOXDRAW_DOWN_LEFT,
+						BOXDRAW_UP_RIGHT,
+						BOXDRAW_UP_LEFT,
+						BOXDRAW_HORIZONTAL,
+						BOXDRAW_VERTICAL,
+						nullptr
+					);
+
+					pCheckBox->TextPrint({ CBWIDTH / 2 - (int)strlen(strtmp) / 2,1 }, strtmp);
+
+					for (key = pThis->TextGetKey();
+						KEY_ENTER != key && KEY_ESC != key;
+						key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
+					{
+						if (KEY_LEFT == key || KEY_RIGHT == key)
+							fYSel ^= true;											// YES/NO selection toggle
+
+						pCheckBox->TextPrint({ CBWIDTH / 2 - 7,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_GREEN : EFI_BACKGROUND_CYAN) | EFI_WHITE, "  YES  ");
+						pCheckBox->TextPrint({ CBWIDTH / 2 + 1,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_CYAN : EFI_BACKGROUND_GREEN) | EFI_WHITE, "  NO  ");
+					}
+					pCheckBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete Y/N CHECK BOX
+					delete pCheckBox;												// delete Y/N CHECK BOX
+
+					//
+					// FILE OVERRIDE CHECK BOX - end
+					//
+					if (fYSel)
+						fCreateOvrd = true;
+					else {
+						wcscpy(wcsStatusBar, L"STATUS: ");
+						swprintf(
+							&wcsStatusBar[wcslen(wcsStatusBar)],
+							sizeof(STATUSSTRING) - 1,
+							L"%hs",
+							strerror(EACCES)
+						);
+						gStatusStringColor = EFI_RED;
+						blink = UINT_MAX & ~3;
+					}
+				}
+
+				if (fCreateOvrd)
+				{
+					errno = 0;
+					fp = fopen(strFileName, "w+");
+					fFileExists = (NULL != fp);
+					swprintf(wcsStatusBar, sizeof(STATUSSTRING) - 1, L"%hs",
+						fFileExists ? "STATUS: Success" : strerror(errno));
+					gStatusStringColor = fFileExists ? EFI_GREEN : EFI_RED;
+					blink = fFileExists ? 0x3C : UINT_MAX & ~3;
+				}
+
+			} while (0);
+		}
+
+		//RealTimeClock Analyser
+
+
+		if (nullptr != pSaveAsBox)
+			pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,
+			delete pSaveAsBox;
+	}return 0;
+}
+
+int fnMnuItm_View_HexSym(CTextWindow* pThis, void* pContext, void* pParm)
+{
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	{
+		CTextWindow* pRoot = pThis->TextWindowGetRoot();
+
+		pRoot->TextBlockClear();
+		gfHexView ^= true;// toggle debug state
+		pThis->TextClearWindow(pRoot->WinAtt);
 	}
-
-	//RealTimeClock Analyser
-
-
-	if (nullptr != pSaveAsBox)
-		pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,
-		delete pSaveAsBox;
+	return 0;
 }
 
-void fnMnuItm_View_HexSym(CTextWindow* pThis, void* pContext)
+int fnMnuItm_View_Clock(CTextWindow* pThis, void* pContext, void* pParm)
 {
-	CTextWindow* pRoot = pThis->TextWindowGetRoot();
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	{
+		CTextWindow* pRoot = pThis->TextWindowGetRoot();
 
-	pRoot->TextBlockClear();
-	gfHexView ^= true;// toggle debug state
-	pThis->TextClearWindow(pRoot->WinAtt);
+		pRoot->TextBlockClear();
+		gfCfgMngMnuItm_View_Clock ^= true;// toggle debug state
+		pThis->TextClearWindow(pRoot->WinAtt);
+	}
+	return 0;
 }
 
-void fnMnuItm_View_Clock(CTextWindow* pThis, void* pContext)
+int fnMnuItm_View_Calendar(CTextWindow* pThis, void* pContext, void* pParm)
 {
-	CTextWindow* pRoot = pThis->TextWindowGetRoot();
+	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	{
+		CTextWindow* pRoot = pThis->TextWindowGetRoot();
 
-	pRoot->TextBlockClear();
-	gfCfgMngMnuItm_View_Clock ^= true;// toggle debug state
-	pThis->TextClearWindow(pRoot->WinAtt);
-}
-
-void fnMnuItm_View_Calendar(CTextWindow* pThis, void* pContext)
-{
-	CTextWindow* pRoot = pThis->TextWindowGetRoot();
-
-	pRoot->TextBlockClear();
-	gfCfgMngMnuItm_View_Calendar ^= true;// toggle debug state
-	pThis->TextClearWindow(pRoot->WinAtt);
+		pRoot->TextBlockClear();
+		gfCfgMngMnuItm_View_Calendar ^= true;// toggle debug state
+		pThis->TextClearWindow(pRoot->WinAtt);
+	}
+	return 0;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -398,36 +422,36 @@ const wchar_t* wcsTimerSelectionAcpiStrings[2][1] =
 const wchar_t* wcsTimerDelayPicStrings[2][5] =
 {
 	{
-		L"  PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
-		L"  PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
-		L"  PIT :  363 *    3287 clocks = 173*19         * 1 ",
-		L"  PIT : 6897 *     173 clocks = 173            * 1 ",
-		L"  PIT : 9861 *     121 clocks =        11*11   * 1 "
+		L"- PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
+		L"- PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
+		L"- PIT :  363 *    3287 clocks = 173*19         * 1 ",
+		L"- PIT : 6897 *     173 clocks = 173            * 1 ",
+		L"- PIT : 9861 *     121 clocks =        11*11   * 1 "
 	},
 	{
-		L"* PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
-		L"* PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
-		L"* PIT :  363 *    3287 clocks = 173*19         * 1 ",
-		L"* PIT : 6897 *     173 clocks = 173            * 1 ",
-		L"* PIT : 9861 *     121 clocks =        11*11   * 1 "
+		L"+ PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
+		L"+ PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
+		L"+ PIT :  363 *    3287 clocks = 173*19         * 1 ",
+		L"+ PIT : 6897 *     173 clocks = 173            * 1 ",
+		L"+ PIT : 9861 *     121 clocks =        11*11   * 1 "
 	},
 };
 
 const wchar_t* wcsTimerDelayAcpiStrings[2][5] =
 {
 	{
-		L"  ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
-		L"  ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
-		L"  ACPI:  363 *    9861 clocks = 173*19         * 3 ",
-		L"  ACPI: 6897 *     519 clocks = 173            * 3 ",
-		L"  ACPI: 9861 *     363 clocks =        11*11   * 3 "
+		L"- ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
+		L"- ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
+		L"- ACPI:  363 *    9861 clocks = 173*19         * 3 ",
+		L"- ACPI: 6897 *     519 clocks = 173            * 3 ",
+		L"- ACPI: 9861 *     363 clocks =        11*11   * 3 "
 	},
 	{
-		L"* ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
-		L"* ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
-		L"* ACPI:  363 *    9861 clocks = 173*19         * 3 ",
-		L"* ACPI: 6897 *     519 clocks = 173            * 3 ",
-		L"* ACPI: 9861 *     363 clocks =        11*11   * 3 "
+		L"+ ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
+		L"+ ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
+		L"+ ACPI:  363 *    9861 clocks = 173*19         * 3 ",
+		L"+ ACPI: 6897 *     519 clocks = 173            * 3 ",
+		L"+ ACPI: 9861 *     363 clocks =        11*11   * 3 "
 	},
 };
 //  PIT :    1 * 1193181 clocks = 173*19*11*11*3x1
@@ -511,27 +535,55 @@ const wchar_t* wcsTimerDelayAcpiStrings[2][5] =
 //	pThis->TextClearWindow(pRoot->WinAtt);	// delete menu window on exit
 //}
 
-void fnMnuItm_Config_PITDelaySelect1(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_PITDelaySelect1 ^= 1;		pMenu->rgwcsMenuItem[0/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[1/* index 4 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 5 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 6 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 7 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); }
+int fnMnuItm_Config_PITDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm)
+{ 
+	CTextWindow* pRoot = pThis->TextWindowGetRoot(); 
+	char* pParmStr = (char*)pParm;
+	menu_t* pMenu = (menu_t*)pContext;
+	int nRet = 0;
+	
+	if (0 == strcmp("ENTER", pParmStr))				// Enter?
+		pThis->TextClearWindow(pRoot->WinAtt);		// ... destroy menu, don't refresh
+	else {
+		gfCfgMngMnuItm_Config_PITDelaySelect1 ^= 1;
+		pMenu->rgwcsMenuItem[0/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0]);
+		nRet = 1;									// ... keep menu and refresh
+	}
 
-void fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;	pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;	pMenu->rgwcsMenuItem[7/* index 4 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;	pMenu->rgwcsMenuItem[8/* index 5 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;	pMenu->rgwcsMenuItem[9/* index 6 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); }
-void fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;	pMenu->rgwcsMenuItem[10/* index 7 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); }
+	return nRet;
+}
+
+int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;  		pMenu->rgwcsMenuItem[1/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][0]); nRet = 1; }return nRet; }
+
+int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;		pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[7/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[8/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[9/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[10/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][0]); nRet = 1; }return nRet; }
+
+//int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[1/* index 4 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 5 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 6 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 7 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//
+//int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;	pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;	pMenu->rgwcsMenuItem[7/* index 4 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;	pMenu->rgwcsMenuItem[8/* index 5 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;	pMenu->rgwcsMenuItem[9/* index 6 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
+//int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;	pMenu->rgwcsMenuItem[10/* index 7 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else nRet = 1; return nRet;}
 
 int gidxCfgMngMnuItm_Config_NumSamples = 0;		// index of selected NumSamples 0/1/2/3, saved at program exit
 
 const wchar_t* wcsNumSamples[2][4] =
 {
-	{L"    10",L"    50",L"   250",L"  1250"},/* non-selected strings */
-	{L"*   10",L"*   50",L"*  250",L"* 1250"},/*     selected strings */
+	{L"-   10",L"-   50",L"-  250",L"- 1250"},/* non-selected strings */
+	{L"+   10",L"+   50",L"+  250",L"+ 1250"},/*     selected strings */
 };
 
-void fnMnuItm_NumSamples(CTextWindow* pThis, void* pContext)
+int fnMnuItm_NumSamples(CTextWindow* pThis, void* pContext, void* pParm)
 { 
 	CTextWindow* pRoot = pThis->TextWindowGetRoot();
 	CTextWindow* pSubMnuTextWindow = new CTextWindow(
@@ -540,9 +592,11 @@ void fnMnuItm_NumSamples(CTextWindow* pThis, void* pContext)
 		{ 10,6 },
 		EFI_BACKGROUND_CYAN | EFI_YELLOW);
 	menu_t* pMenu = (menu_t*)pContext;
-	int idxMnuItm = 0;
+	int nRet = 0;
+	int idxMnuItm = 0, idxMnuItmChecked = gidxCfgMngMnuItm_Config_NumSamples/*checked with space bar*/;
 	int idxMnuItmNUM = 4;		/* number of lines within the pulldown menu */;
 	TEXT_KEY key = NO_KEY;
+
 
 	pSubMnuTextWindow->TextBorder({ 0, 0 }, pSubMnuTextWindow->WinDim,
 		BOXDRAW_DOWN_RIGHT,
@@ -586,21 +640,38 @@ void fnMnuItm_NumSamples(CTextWindow* pThis, void* pContext)
 			idxMnuItm = (--idxMnuItm < 0 ? idxMnuItmNUM - 1 : idxMnuItm);
 			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, wcsNumSamples[idxMnuItm == gidxCfgMngMnuItm_Config_NumSamples/* selected/non-selected */][idxMnuItm]);	// de-highlight previous menu item
 		}
+
+		if (KEY_SPACE == key) {
+
+			gidxCfgMngMnuItm_Config_NumSamples = idxMnuItm;
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItmChecked + 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW, wcsNumSamples[0][idxMnuItmChecked]);	// de-highlight previous menu item
+			pSubMnuTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, wcsNumSamples[1][idxMnuItm]);			// highlight current menu item
+			idxMnuItmChecked = idxMnuItm;
+		}
 	}
-	// save, if selected with ENTER, skip if ESC
-	if (KEY_ENTER == key)
-		gidxCfgMngMnuItm_Config_NumSamples = idxMnuItm;
+	//// save, if selected with ENTER, skip if ESC
+	//if (KEY_ENTER == key)
+	//	gidxCfgMngMnuItm_Config_NumSamples = idxMnuItm;
 
 	pSubMnuTextWindow->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;
-	delete pSubMnuTextWindow->pParent;									// destroy the CONFIG menu window
-	delete pSubMnuTextWindow;											// destroy the SUBMENU window
+	if (KEY_ENTER == key)
+	{
+		delete pSubMnuTextWindow->pParent;									// destroy the CONFIG menu window
+		delete pSubMnuTextWindow;											// destroy the SUBMENU window
+		nRet = 0;															// do not refresh menu window, it is destroyed
+	}
+	else {
+		delete pSubMnuTextWindow;											// destroy the SUBMENU window
+		nRet = 1;															// refresh menu window
+	}
+	return nRet;
 }
 
 
 /////////////////////////////////////////////////////////////////////////////
 // About - BOX
 /////////////////////////////////////////////////////////////////////////////
-void fnMnuItm_About_0(CTextWindow* pThis, void* pContext)
+int fnMnuItm_About_0(CTextWindow* pThis, void* pContext, void* pParm)
 {
 	CTextWindow* pAboutBox;
 	CTextWindow* pRoot = pThis->TextWindowGetRoot();
@@ -636,9 +707,10 @@ void fnMnuItm_About_0(CTextWindow* pThis, void* pContext)
 
 	pAboutBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;
 	delete pAboutBox;
+	return 0;
 }
 
-void fnMnuItm_About_1(CTextWindow* pThis, void* pContext)
+int fnMnuItm_About_1(CTextWindow* pThis, void* pContext, void* pParm)
 {
 	CTextWindow* pRoot = pThis->TextWindowGetRoot();
 	gfKbdDbg ^= true;// toggle debug state
@@ -655,6 +727,7 @@ void fnMnuItm_About_1(CTextWindow* pThis, void* pContext)
 	}
 
 	pThis->TextClearWindow(pRoot->WinAtt);
+	return 0;
 }
 
 void resetconsole(void)
@@ -663,13 +736,14 @@ void resetconsole(void)
 	gSystemTable->ConOut->SetAttribute(gSystemTable->ConOut, EFI_BACKGROUND_BLACK + EFI_WHITE);
 }
 
-void fnMnuItm_RunConfig_0(CTextWindow* pThis, void* pContext)
+int fnMnuItm_RunConfig_0(CTextWindow* pThis, void* pContext, void* pParm)
 {
 	CTextWindow* pRoot = pThis->TextWindowGetRoot();
 
 	gfRunConfig = true;
 
 	pThis->TextClearWindow(pRoot->WinAtt);
+	return 0;
 }
 
 int main(int argc, char** argv)
@@ -718,7 +792,7 @@ int main(int argc, char** argv)
 	if (1)
 	{
 		static int32_t buffer[NUM], diff;
-		uint64_t min = ~0, max = 0, sum = 0;
+		uint64_t min = (uint64_t)~0, max = 0, sum = 0;
 
 		for (int i = 0; i < NUM; i++)
 			buffer[i] = _inpd(gPmTmrBlkAddr);
@@ -745,7 +819,7 @@ int main(int argc, char** argv)
 		//unsigned char counterLoHi[2];
 		static uint16_t buffer[NUM], diff;
 		unsigned char* pbCount = (unsigned char*)&buffer[0];
-		uint64_t min = ~0, max = 0,sum = 0;
+		uint64_t min = (uint64_t)~0, max = 0, sum = 0;
 		
 #define TIMER 2
 
@@ -861,7 +935,7 @@ int main(int argc, char** argv)
 
 		menu_t menu[] =
 		{
-			{{04,0},	L" File ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Save As         ",L"Exit            ",L"Exit + Save      "},{&fnMnuItm_File_SaveAs, &fnMnuItm_File_Exit,&fnMnuItm_File_SaveExit}},
+			{{04,0},	L" File ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Save As         ",L"Exit            ",L"Save/Exit        "},{&fnMnuItm_File_SaveAs, &fnMnuItm_File_Exit,&fnMnuItm_File_SaveExit}},
 			{{12,0},	L" View ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Hex/Sym view    ",L"Clock           ",L"Calendar        " },{&fnMnuItm_View_HexSym,&fnMnuItm_View_Clock,&fnMnuItm_View_Calendar}},
 			{{20,0},	L" Help ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false, false},*/ {L"About           ",L"KEYBOARD DEBUG  "},{&fnMnuItm_About_0, &fnMnuItm_About_1 }},
 			{{28,0},	L" CONFIG ",	nullptr,{55,15/* # menuitems + 2 */},	/*{false, false, true, false},*/
@@ -939,7 +1013,8 @@ int main(int argc, char** argv)
 				wcsARROW_UP[2] = { ARROW_UP ,'\0' },
 				wcsARROW_RIGHT[2] = { ARROW_RIGHT ,'\0' },
 				wcsARROW_DOWN[2] = { ARROW_DOWN ,'\0' };
-			FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu ENTER:Select ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+			//FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu ENTER:Select ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+			  FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu \x25C4\x2518:Select SPACE:Check ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
 		}
 
 		//
@@ -1072,11 +1147,85 @@ int main(int argc, char** argv)
 					}
 					else if (KEY_ENTER == key)
 					{
+						int fRefrehMenu = 0;
 						menu[idxMenu].pTextWindow->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK; // set background attribute
-						(*menu[idxMenu].rgfnMnuItm[idxMnuItm])(menu[idxMenu].pTextWindow, &menu[idxMenu]/*nullptr*/);
-						for (int i = 0; i < ELC(menu); i++)		// normalize the menu strings
-							FullScreen.TextPrint(menu[i].RelPos, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, menu[i].wcsMenuName);
-						state = MENU_DFLT;
+						fRefrehMenu = (*menu[idxMenu].rgfnMnuItm[idxMnuItm])(menu[idxMenu].pTextWindow, &menu[idxMenu]/*nullptr*/, (void*)"ENTER");
+						
+						if (fRefrehMenu)
+						{
+							//
+							// redraw entire menu with refreshed string
+							//
+							menu[idxMenu].pTextWindow = new CTextWindow(&FullScreen, { menu[idxMenu].RelPos.X, 2 }, menu[idxMenu].MnuDim, EFI_BACKGROUND_CYAN | EFI_YELLOW);
+							menu[idxMenu].pTextWindow->TextBorder({ 0, 0 }, menu[idxMenu].MnuDim,
+								BOXDRAW_DOWN_RIGHT,
+								BOXDRAW_DOWN_LEFT,
+								BOXDRAW_UP_RIGHT,
+								BOXDRAW_UP_LEFT,
+								BOXDRAW_HORIZONTAL,
+								BOXDRAW_VERTICAL,
+								nullptr);
+
+							//
+							// fill menu with menuitem strings
+							//
+							menu[idxMenu].pTextWindow->pwcsBlockDrawBuf[0] = '\0';		// initially terminate the string list
+
+							for (int i = 0; /* NOTE: check for NULL string to terminate the list */menu[idxMenu].rgwcsMenuItem[i]; i++)
+							{
+								wchar_t* wcsList = menu[idxMenu].pTextWindow->pwcsBlockDrawBuf;
+								size_t x = wcslen(wcsList);								// always get end of strings
+
+								swprintf(&wcsList[x], UINT_MAX, L"%s\n", menu[idxMenu].rgwcsMenuItem[i]);
+							}
+							menu[idxMenu].pTextWindow->TextBlockDraw({ 2, 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
+							menu[idxMenu].pTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, menu[idxMenu].rgwcsMenuItem[idxMnuItm]);	//    highlight current  menu item
+						}
+						else {
+
+							for (int i = 0; i < ELC(menu); i++)		// normalize the menu strings
+								FullScreen.TextPrint(menu[i].RelPos, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, menu[i].wcsMenuName);
+							state = MENU_DFLT;
+						}
+					}
+					else if (KEY_SPACE == key)
+					{
+						int fRefrehMenu = 0;
+						menu[idxMenu].pTextWindow->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK; // set background attribute
+						fRefrehMenu = (*menu[idxMenu].rgfnMnuItm[idxMnuItm])(menu[idxMenu].pTextWindow, &menu[idxMenu]/*nullptr*/, (void*)"SPACE");
+						
+						if (fRefrehMenu)
+						{
+							//
+							// redraw entire menu with refreshed string
+							//
+							menu[idxMenu].pTextWindow = new CTextWindow(&FullScreen, { menu[idxMenu].RelPos.X, 2 }, menu[idxMenu].MnuDim, EFI_BACKGROUND_CYAN | EFI_YELLOW);
+							menu[idxMenu].pTextWindow->TextBorder({ 0, 0 }, menu[idxMenu].MnuDim,
+								BOXDRAW_DOWN_RIGHT,
+								BOXDRAW_DOWN_LEFT,
+								BOXDRAW_UP_RIGHT,
+								BOXDRAW_UP_LEFT,
+								BOXDRAW_HORIZONTAL,
+								BOXDRAW_VERTICAL,
+								nullptr);
+
+							//
+							// fill menu with menuitem strings
+							//
+							menu[idxMenu].pTextWindow->pwcsBlockDrawBuf[0] = '\0';		// initially terminate the string list
+
+							for (int i = 0; /* NOTE: check for NULL string to terminate the list */menu[idxMenu].rgwcsMenuItem[i]; i++)
+							{
+								wchar_t* wcsList = menu[idxMenu].pTextWindow->pwcsBlockDrawBuf;
+								size_t x = wcslen(wcsList);								// always get end of strings
+
+								swprintf(&wcsList[x], UINT_MAX, L"%s\n", menu[idxMenu].rgwcsMenuItem[i]);
+							}
+							menu[idxMenu].pTextWindow->TextBlockDraw({ 2, 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
+							menu[idxMenu].pTextWindow->TextPrint({ 2,idxMnuItm + 1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, menu[idxMenu].rgwcsMenuItem[idxMnuItm]);	//    highlight current  menu item
+						}
+
+
 					}
 					else if (KEY_DOWN == key) {
 						int idxMnuItmNUM = menu[idxMenu].MnuDim.Y - 2/* number of lines within the pulldown menu */;

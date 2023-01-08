@@ -584,6 +584,8 @@ TEXT_KEY CTextWindow::TextGetKey(void) {
 		key = KEY_DOWN;
 	if (CHAR_CARRIAGE_RETURN == KeyData.Key.UnicodeChar)
 		key = KEY_ENTER;
-	
+	if (0x20 == KeyData.Key.UnicodeChar)
+		key = KEY_SPACE;
+
 	return key;
 }
