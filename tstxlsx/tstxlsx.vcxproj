@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{894dee3f-929f-4039-9921-4622e534a395}</ProjectGuid>
-    <RootNamespace>TSCSync</RootNamespace>
+    <ProjectGuid>{0fd4ad86-b614-46bb-9b64-a4d9614f99ee}</ProjectGuid>
+    <RootNamespace>tstxlsx</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -129,7 +129,7 @@
       <LanguageStandard_C>Default</LanguageStandard_C>
       <StringPooling>true</StringPooling>
       <DisableSpecificWarnings>4100;%(DisableSpecificWarnings);4996;4189;4005;4804;4458;4162</DisableSpecificWarnings>
-      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)include\x64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)include\x64;$(SolutionDir)Visual-LIBXLSXWRITER-for-UEFI-Shell\libxlsxwriter\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -145,7 +145,7 @@
       <LinkTimeCodeGeneration />
       <AdditionalLibraryDirectories>$(SolutionDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <AdditionalDependencies>toroC64.lib;LibWin324UEFI.lib</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)lib\LibWin324UEFI.lib;$(SolutionDir)lib\zlibstat.lib;$(SolutionDir)lib\libxlsxwriter.lib;$(SolutionDir)lib\minizip.lib;$(SolutionDir)lib\tmpfileplus.lib;$(SolutionDir)lib\md5.lib;$(SolutionDir)lib\toroC64.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" d:\</Command>
@@ -162,7 +162,7 @@
       <SDLCheck>false</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions);_NO_CRT_STDIO_INLINE</PreprocessorDefinitions>
       <ConformanceMode>Default</ConformanceMode>
-      <Optimization>MinSpace</Optimization>
+      <Optimization>Disabled</Optimization>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <ExceptionHandling>false</ExceptionHandling>
@@ -171,9 +171,11 @@
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <StringPooling>true</StringPooling>
       <DisableSpecificWarnings>4100;%(DisableSpecificWarnings);4996;4189;4005;4804;4458;4162</DisableSpecificWarnings>
-      <AdditionalIncludeDirectories>$(SolutionDir)Include;$(SolutionDir)Include\X64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DebugInformationFormat>None</DebugInformationFormat>
+      <AdditionalIncludeDirectories>$(SolutionDir)Include;$(SolutionDir)Include\X64;$(SolutionDir)Visual-LIBXLSXWRITER-for-UEFI-Shell\libxlsxwriter\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <AdditionalOptions>/Zc:threadSafeInit- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -186,20 +188,18 @@
       <GenerateMapFile>true</GenerateMapFile>
       <LinkTimeCodeGeneration>
       </LinkTimeCodeGeneration>
-      <AdditionalDependencies>kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>$(SolutionDir)Lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>kernel32.lib;$(SolutionDir)lib\zlibstat.lib;$(SolutionDir)lib\libxlsxwriter.lib;$(SolutionDir)lib\minizip.lib;$(SolutionDir)lib\tmpfileplus.lib;$(SolutionDir)lib\md5.lib;$(SolutionDir)lib\toroC64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
     </Link>
+    <PostBuildEvent>
+      <Command>copy "$(OutDir)$(TargetName)$(TargetExt)" d: /Y</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>copy "$(OutDir)$(TargetName)$(TargetExt)" d: /Y</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AcpiClkWait.c" />
     <ClCompile Include="main.cpp">
-      <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="PITClkWait.c" />
-    <ClCompile Include="TextWindow.cpp">
-      <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
-    </ClCompile>
-    <ClCompile Include="UefiBase.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>
   </ItemGroup>
