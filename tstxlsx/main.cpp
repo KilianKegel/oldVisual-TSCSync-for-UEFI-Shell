@@ -61,13 +61,16 @@ extern "C" WINBASEAPI UINT WINAPI EnumSystemFirmwareTables(
 
 int main(int argc, char** argv)
 {
+	lxw_error lxwerr;
 	lxw_workbook* workbook = workbook_new("chart_line.xlsx");
 	lxw_worksheet* worksheet = workbook_add_worksheet(workbook, nullptr);
+	//	lxw_worksheet* worksheet2 = workbook_add_worksheet(workbook, nullptr);
 	lxw_format* bold = workbook_add_format(workbook);
 	lxw_chart* chart;
 	lxw_chart_series* series;
-	
-	int cntSamples = 750;
+	lxw_chartsheet *chartsheet1;
+
+	int cntSamples = 1250;
     static uint64_t statbuf4maxall[1250 * 10];	// one buffer for all
 	//bool Ena[10] = { true,false,false,false,false,false,false,false,false,false };
 	static struct {
@@ -83,17 +86,17 @@ int main(int argc, char** argv)
 		//uint64_t min;
 	}parms[] = {
 		//PIT
-		{"i8254 PIT ticks : \n1193181 x    1",1 * 1193181,1, nullptr, true,	&statbuf4maxall[0 * 1250]},
-		{"i8254 PIT ticks : \n62799   x   19",1 * 62799,19 , nullptr, true,&statbuf4maxall[1 * 1250]},
-		{"i8254 PIT fixed : \n3287    x  363",1 * 3287,363 , nullptr, true,&statbuf4maxall[2 * 1250]},
-		{"i8254 PIT ticks : \n173     x 6897",1 * 173,6897 , nullptr, true,&statbuf4maxall[3 * 1250]},
-		{"i8254 PIT ticks : \n121     x 9861",1 * 121,9861 , nullptr, true,	&statbuf4maxall[4 * 1250]},
+		{"i8254 PIT: 1193181 ticks x    1",1 * 1193181,1, nullptr, true,	&statbuf4maxall[0 * 1250]},
+		{"i8254 PIT: 62799 ticks   x   19",1 * 62799,19 , nullptr, true,&statbuf4maxall[1 * 1250]},
+		{"i8254 PIT: 3287 ticks    x  363",1 * 3287,363 , nullptr, true,&statbuf4maxall[2 * 1250]},
+		{"i8254 PIT: 173 ticks     x 6897",1 * 173,6897 , nullptr, true,&statbuf4maxall[3 * 1250]},
+		{"i8254 PIT: 121 ticks     x 9861",1 * 121,9861 , nullptr, true,	&statbuf4maxall[4 * 1250]},
 		// ACPI
-		{"ACPI PMTmr ticks: \n3579543 x    1",3 * 1193181,1, nullptr, true,&statbuf4maxall[5 * 1250]},
-		{"ACPI PMTmr ticks: \n188397  x   19",3 * 62799,19 , nullptr, true,&statbuf4maxall[6 * 1250]},
-		{"ACPI PMTmr ticks: \n9861    x  363",3 * 3287,363 , nullptr, true,&statbuf4maxall[7 * 1250]},
-		{"ACPI PMTmr ticks: \n519     x 6897",3 * 173,6897 , nullptr, true,&statbuf4maxall[8 * 1250]},
-		{"ACPI PMTmr ticks: \n363     x 9861",3 * 121,9861 , nullptr, true,&statbuf4maxall[9 * 1250]},
+		{"ACPI Timer: 3579543 ticks x    1",3 * 1193181,1, nullptr, true,&statbuf4maxall[5 * 1250]},
+		{"ACPI Timer: 188397 ticks  x   19",3 * 62799,19 , nullptr, true,&statbuf4maxall[6 * 1250]},
+		{"ACPI Timer: 9861 ticks    x  363",3 * 3287,363 , nullptr, true,&statbuf4maxall[7 * 1250]},
+		{"ACPI Timer: 519 ticks     x 6897",3 * 173,6897 , nullptr, true,&statbuf4maxall[8 * 1250]},
+		{"ACPI Timer: 363 ticks     x 9861",3 * 121,9861 , nullptr, true,&statbuf4maxall[9 * 1250]},
 	};
 
 	srand((unsigned)__rdtsc());
@@ -154,29 +157,140 @@ int main(int argc, char** argv)
 	}
 
 
-    /* Create a chart object. */
-    chart = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+	//
+	// preview diagram on first page
+	//
+	if (1)
+	{
 
-	///* Configure the chart. */
-	for (	int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */; 
-			i < ELC(parms); 
+		/* Create a chart object. */
+		chart = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+		//
+		// Configure the chart for all measurements
+		//
+		for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+			i < ELC(parms);
 			i++)
+		{
+			char strCategory[64], strValue[64];
+
+			if (false == parms[i].Ena)
+				continue;
+
+			sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+			sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+			series = chart_add_series(chart, strCategory, strValue);
+			chart_series_set_name(series, parms[i].szTitle);
+
+			col++;
+
+		}
+		chart_title_set_name(chart, "Overall preview");
+		worksheet_insert_chart(worksheet, CELL("B2"), chart);
+	}
+
+	//
+	// full screen view diagram on second page
+	//
+	if (1)
+	{
+
+		/* Create a chart object. */
+		lxw_chart* chart2 = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+		//
+		// Configure the chart for all measurements
+		//
+		for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+			i < ELC(parms);
+			i++)
+		{
+			char strCategory[64], strValue[64];
+
+			if (false == parms[i].Ena)
+				continue;
+
+			sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+			sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+			series = chart_add_series(chart2, strCategory, strValue);
+			chart_series_set_name(series, parms[i].szTitle);
+
+			col++;
+
+		}
+		chartsheet1 = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+		// Insert the chart into the chartsheet.
+		lxwerr = chartsheet_set_chart(chartsheet1, chart2);
+		chart_title_set_name(chart2, "Overall full screen view");
+		chartsheet_set_landscape(chartsheet1);
+
+	}
+	//
+	// create one additional chartsheet for each single measurement
+	//
+	for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+		i < ELC(parms);
+		i++)
 	{
 		char strCategory[64], strValue[64];
-
+		lxw_chart* chart[ELC(parms)];
+		lxw_chart_series* series[ELC(parms)];
+		lxw_chartsheet* chartsheet[ELC(parms)];
+		//lxw_worksheet* worksheet[ELC(parms)];
+		char sheetnametmp[64];
+		
 		if (false == parms[i].Ena)
 			continue;
+		
+		sprintf(sheetnametmp, "Chart%d", col);
+//		worksheet[i] = workbook_add_worksheet(workbook, nullptr);
 
-		sprintf(strCategory	, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START      , 'A' + COL_TBL_START      , 1 + cntSamples);
-		sprintf(strValue	, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+		//sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A', 'A', 1 + cntSamples);
+		//sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + col, 'A' + col, 1 + cntSamples);
+		sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+		sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
 
-		series = chart_add_series(chart, strCategory, strValue);
-		chart_series_set_name(series, parms[i].szTitle);
+		// Create the chartsheet.
+		chartsheet[i] = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+		// Create a chart object.
+
+		chart[i] = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+		// Add a data series to the chart.
+//		chart_add_series(chart, NULL, "=Sheet1!$A$1:$A$6");
+		series[i] = chart_add_series(chart[i], strCategory, strValue);
+		chart_series_set_name(series[i], parms[i].szTitle);
+
+		// Insert the chart into the chartsheet.
+		lxwerr = chartsheet_set_chart(chartsheet[i], chart[i]);
+		printf("%2d: %d\n", i, lxwerr);
+
+		lxwerr = chartsheet_set_header(chartsheet[i], sheetnametmp);
+		chart_title_set_name(chart[i], parms[i].szTitle);
+		//// Create the chartsheet.
+		//lxw_chartsheet* chartsheet = workbook_add_chartsheet(workbook, nullptr);
+
+		//// Create a chart object.
+		//lxw_chart* chart2 = workbook_add_chart(workbook, LXW_CHART_LINE);
+
+		//// Add a data series to the chart.
+		//chart_add_series(chart2, nullptr, "=Sheet1!$A$1:$A$6");
+
+		//// Insert the chart into the chartsheet.
+		//chartsheet_set_chart(chartsheet, chart2);
+
+		///* Display the chartsheet as the active sheet when the workbook is opened. */
+		//chartsheet_activate(chartsheet);
 
 		col++;
 	}
 
- 	worksheet_insert_chart(worksheet, CELL("B2"), chart);
+
 
     return workbook_close(workbook);
 }
