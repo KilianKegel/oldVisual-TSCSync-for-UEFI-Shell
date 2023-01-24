@@ -1,5 +1,6 @@
 //
 // prefixes used:
+//  dbl - double float
 //	wcs - wide character string
 //	str - narrow character string
 //	fn	- function
@@ -32,6 +33,8 @@
 
 #include <Protocol\AcpiSystemDescriptionTable.h>
 
+#include "xlsxwriter.h"
+
 extern "C" EFI_SYSTEM_TABLE * _cdegST;
 extern "C" EFI_SYSTEM_TABLE * gSystemTable;
 extern "C" EFI_HANDLE gImageHandle;
@@ -42,6 +45,7 @@ extern "C" unsigned long _outpd(unsigned short port, unsigned long data_word);
 extern "C" int _inp(unsigned short port);
 extern "C" unsigned short _inpw(unsigned short port);
 extern "C" unsigned long _inpd(unsigned short port);
+extern "C" void _disable(void);
 
 extern bool gfKbdDbg;
 extern "C" uint16_t gPmTmrBlkAddr;
@@ -77,6 +81,64 @@ extern void* rgcbAtUpdateParms[32][3];	// array of parameters: void* pThis, void
 #define RTCRD(idx) (_outp(0xED,0x55),_outp(0xED,0x55),_outp(0x70,idx),_outp(0xED,0x55),_outp(0xED,0x55),_inp(0x71))
 
 #define IODELAY _outp(0xED, 0x55)
+
+uint64_t gTSCPerSecondReference;	// initally taken from RTC UP flag 0x10 Reg 0xC
+
+/////////////////////////////////////////////////////////////////////////////
+// CONFIG menu functions and strings
+/////////////////////////////////////////////////////////////////////////////
+//
+// gfCfgMngXyz - global flag configuration managed XYZ
+//
+bool gfCfgMngMnuItm_Config_PicApicSelect = true;	// "TIMER: PIT" vs. "TIMER: ACPI" APIT selected by default
+bool gfCfgMngMnuItm_Config_PITDelaySelect1 = true;	// L"  PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 " vs. L"* PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 "	selected by default
+bool gfCfgMngMnuItm_Config_PITDelaySelect2 = false;	// L"  PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 " vs. L"* PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 "
+bool gfCfgMngMnuItm_Config_PITDelaySelect3 = false;	// L"  PIT :  363 *    3287 clocks = 173*19         * 1 " vs. L"* PIT :  363 *    3287 clocks = 173*19         * 1 "
+bool gfCfgMngMnuItm_Config_PITDelaySelect4 = false;	// L"  PIT : 6897 *     173 clocks = 173            * 1 " vs. L"* PIT : 6897 *     173 clocks = 173            * 1 "
+bool gfCfgMngMnuItm_Config_PITDelaySelect5 = false;	// L"  PIT : 9861 *     121 clocks =        11*11   * 1 " vs. L"* PIT : 9861 *     121 clocks =        11*11   * 1 "
+
+bool gfCfgMngMnuItm_Config_ACPIDelaySelect1 = true;	// L"  ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 " vs. L"* ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 "	selected by default
+bool gfCfgMngMnuItm_Config_ACPIDelaySelect2 = false;// L"  ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 " vs. L"* ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 "
+bool gfCfgMngMnuItm_Config_ACPIDelaySelect3 = false;// L"  ACPI:  363 *    9861 clocks = 173*19         * 3 " vs. L"* ACPI:  363 *    9861 clocks = 173*19         * 3 "
+bool gfCfgMngMnuItm_Config_ACPIDelaySelect4 = false;// L"  ACPI: 6897 *     519 clocks = 173            * 3 " vs. L"* ACPI: 6897 *     519 clocks = 173            * 3 "
+bool gfCfgMngMnuItm_Config_ACPIDelaySelect5 = false;// L"  ACPI: 9861 *     363 clocks =        11*11   * 3 " vs. L"* ACPI: 9861 *     363 clocks =        11*11   * 3 "
+bool gfCfgMngMnuItm_Config_DEBURRING = true;		// remove measurement glitches (100 times aside average)
+
+/////////////////////////////////////////////////////////////////////////////
+// global shared data
+/////////////////////////////////////////////////////////////////////////////
+static uint64_t statbuf4DiffTSC[1250 * 10];	// one buffer for all
+static double statbuf4DriftSecPerDay[1250 * 10];	// one buffer for all
+static int cntSamples = 0;
+static struct {
+	char szTitle[64];
+	uint32_t delay;
+	uint32_t dwMultiplierToOneSecond;
+	uint64_t(*pfnDelay)(uint32_t  Delay);
+	bool* pEna;
+	uint64_t* rgDiffTSC;	// equivalence of arrays and pointers
+	double* rgDriftSecPerDay;	// equivalence of arrays and pointers
+
+	double dblDiffTSCAverage;
+	double dblDiffTSCAverageScaled2EntireDay;
+	//uint64_t diffTSC;
+	//uint64_t sum;
+	//uint64_t max;
+	//uint64_t min;
+}parms[] = {
+	//PIT
+	//{"i8254 PIT ticks : 1 * 1193181 x    1",1 * 1193181,1, &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect1,	&statbuf4DiffTSC[0 * 1250],&statbuf4DriftSecPerDay[0 * 1250]},
+	//{"i8254 PIT ticks : 1 * 62799   x   19",1 * 62799,19 , &_osifIbmAtGetTscPer62799          , &gfCfgMngMnuItm_Config_PITDelaySelect2,	&statbuf4DiffTSC[1 * 1250],&statbuf4DriftSecPerDay[1 * 1250]},
+	//{"i8254 PIT fixed : 1 * 3287    x  363",1 * 3287,363 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect3,	&statbuf4DiffTSC[2 * 1250],&statbuf4DriftSecPerDay[2 * 1250]},
+	//{"i8254 PIT ticks : 1 * 173     x 6897",1 * 173,6897 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect4,	&statbuf4DiffTSC[3 * 1250],&statbuf4DriftSecPerDay[3 * 1250]},
+	//{"i8254 PIT ticks : 1 * 121     x 9861",1 * 121,9861 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect5,	&statbuf4DiffTSC[4 * 1250],&statbuf4DriftSecPerDay[4 * 1250]},
+	// ACPI
+	{"ACPI PMTmr ticks: 3 * 1193181 x    1",3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1,&statbuf4DiffTSC[0 * 1250],&statbuf4DriftSecPerDay[0 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 62799   x   19",3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2,&statbuf4DiffTSC[1 * 1250],&statbuf4DriftSecPerDay[1 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 3287    x  363",3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3,&statbuf4DiffTSC[2 * 1250],&statbuf4DriftSecPerDay[2 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 173     x 6897",3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4,&statbuf4DiffTSC[3 * 1250],&statbuf4DriftSecPerDay[3 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 121     x 9861",3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5,&statbuf4DiffTSC[4 * 1250],&statbuf4DriftSecPerDay[4 * 1250]},
+};
 
 char gStatusStringColor = EFI_GREEN;
 #define STATUSSTRING "STATUS: 1234567890abcdefABCDEF"
@@ -209,31 +271,32 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 		//
 		if (1)
 		{
-			int i = 0;
 			TEXT_KEY key;
-			for (key = pThis->TextGetKey();
-				KEY_ESC != key && KEY_ENTER != key;
-				key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
-			{
-
-				pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, strFileName);
-				pSaveAsBox->TextPrint({ 2 + i,2 }, 4 & blink++ ? EFI_BACKGROUND_RED | EFI_WHITE : EFI_BACKGROUND_BLUE | EFI_WHITE, " ");//blink the cursor
-
-				//debug pSaveAsBox->TextPrint({ 0,0 }, "%3d %04X", i, pThis->KeyData.Key.UnicodeChar);
-
-				if (0xFFFF != pThis->KeyData.Key.UnicodeChar
-					&& 0x0000 != pThis->KeyData.Key.UnicodeChar)
+			if (1) {
+				int i = 0;
+				for (key = pThis->TextGetKey();
+					KEY_ESC != key && KEY_ENTER != key;
+					key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
 				{
-					if ('\b'/* back space */ == (char)pThis->KeyData.Key.UnicodeChar)
-						pSaveAsBox->TextPrint({ 2 + i,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, " "),	// clear old cursor
-						i--;																	// adjust new curor position
-					else
-						strFileName[i++] = (char)pThis->KeyData.Key.UnicodeChar;
 
-					strFileName[i] = '\0';
+					pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, strFileName);
+					pSaveAsBox->TextPrint({ 2 + i,2 }, 4 & blink++ ? EFI_BACKGROUND_RED | EFI_WHITE : EFI_BACKGROUND_BLUE | EFI_WHITE, " ");//blink the cursor
+
+					//debug pSaveAsBox->TextPrint({ 0,0 }, "%3d %04X", i, pThis->KeyData.Key.UnicodeChar);
+
+					if (0xFFFF != pThis->KeyData.Key.UnicodeChar
+						&& 0x0000 != pThis->KeyData.Key.UnicodeChar)
+					{
+						if ('\b'/* back space */ == (char)pThis->KeyData.Key.UnicodeChar)
+							pSaveAsBox->TextPrint({ 2 + i,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, " "),	// clear old cursor
+							i--;																	// adjust new curor position
+						else
+							strFileName[i++] = (char)pThis->KeyData.Key.UnicodeChar;
+
+						strFileName[i] = '\0';
+					}
 				}
 			}
-
 			if (KEY_ESC == key)
 				wcscpy(wcsStatusBar, L"STATUS: cancled"),
 				gStatusStringColor = EFI_GREEN,
@@ -243,11 +306,11 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 			{
 				errno = 0;
 				FILE* fp = fopen(strFileName, "r");
-				bool fFileExists = (NULL != fp);	// flag file exists
+				bool fFileExists = (nullptr != fp);	// flag file exists
 				bool fCreateOvrd = !fFileExists;	// flag CreateOverride
 
 				//
-				// FILE OVERRIDE CHECK BOX - start
+				// FILE OVERRIDE Input BOX - start
 				//
 				if (true == fFileExists)
 				{
@@ -256,18 +319,18 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 					pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete SAVE AS BOX
 					delete pSaveAsBox;												// delete SAVE AS BOX
 					pSaveAsBox = nullptr;											// prevent from second deletion below
-#define CBHIGHT 5												// CheckBox height
+#define DBHIGHT 5												// InputBox height
 					char strtmp[256];
 
 					pRoot->TextBlockRfrsh();										// refresh the background
 
 					snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", strFileName);
-					int CBWIDTH/* CheckBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
+					int DBWIDTH/* InputBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
 
-					CTextWindow* pCheckBox = new CTextWindow(						// create Y/N CHECK BOX
+					CTextWindow* pDialogBox = new CTextWindow(						// create Y/N Dialog BOX
 						pThis,
-						{ pRoot->WinDim.X / 2 - CBWIDTH / 2,pRoot->WinDim.Y / 2 - CBHIGHT / 2 },
-						{ CBWIDTH,CBHIGHT },
+						{ pRoot->WinDim.X / 2 - DBWIDTH / 2,pRoot->WinDim.Y / 2 - DBHIGHT / 2 },
+						{ DBWIDTH,DBHIGHT },
 						EFI_BACKGROUND_CYAN | EFI_YELLOW
 					);
 					// 00000000001111111111
@@ -276,9 +339,9 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 					// |    YES     NO    |
 					// +------------------+
 
-					pCheckBox->TextBorder(
+					pDialogBox->TextBorder(
 						{ 0,0 },
-						{ CBWIDTH,CBHIGHT },
+						{ DBWIDTH,DBHIGHT },
 						BOXDRAW_DOWN_RIGHT,
 						BOXDRAW_DOWN_LEFT,
 						BOXDRAW_UP_RIGHT,
@@ -288,7 +351,7 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 						nullptr
 					);
 
-					pCheckBox->TextPrint({ CBWIDTH / 2 - (int)strlen(strtmp) / 2,1 }, strtmp);
+					pDialogBox->TextPrint({ DBWIDTH / 2 - (int)strlen(strtmp) / 2,1 }, strtmp);
 
 					for (key = pThis->TextGetKey();
 						KEY_ENTER != key && KEY_ESC != key;
@@ -297,14 +360,14 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 						if (KEY_LEFT == key || KEY_RIGHT == key)
 							fYSel ^= true;											// YES/NO selection toggle
 
-						pCheckBox->TextPrint({ CBWIDTH / 2 - 7,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_GREEN : EFI_BACKGROUND_CYAN) | EFI_WHITE, "  YES  ");
-						pCheckBox->TextPrint({ CBWIDTH / 2 + 1,CBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_CYAN : EFI_BACKGROUND_GREEN) | EFI_WHITE, "  NO  ");
+						pDialogBox->TextPrint({ DBWIDTH / 2 - 7,DBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_GREEN : EFI_BACKGROUND_CYAN) | EFI_WHITE, "  YES  ");
+						pDialogBox->TextPrint({ DBWIDTH / 2 + 1,DBHIGHT - 2 }, (fYSel ? EFI_BACKGROUND_CYAN : EFI_BACKGROUND_GREEN) | EFI_WHITE, "  NO  ");
 					}
-					pCheckBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete Y/N CHECK BOX
-					delete pCheckBox;												// delete Y/N CHECK BOX
+					pDialogBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK;		// delete Y/N CHECK BOX
+					delete pDialogBox;												// delete Y/N CHECK BOX
 
 					//
-					// FILE OVERRIDE CHECK BOX - end
+					// FILE OVERRIDE dialog BOX - end
 					//
 					if (fYSel)
 						fCreateOvrd = true;
@@ -325,11 +388,188 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 				{
 					errno = 0;
 					fp = fopen(strFileName, "w+");
-					fFileExists = (NULL != fp);
+					fFileExists = (nullptr != fp);
 					swprintf(wcsStatusBar, sizeof(STATUSSTRING) - 1, L"%hs",
 						fFileExists ? "STATUS: Success" : strerror(errno));
 					gStatusStringColor = fFileExists ? EFI_GREEN : EFI_RED;
 					blink = fFileExists ? 0x3C : UINT_MAX & ~3;
+					
+					// delete strFileName
+					if (fFileExists)
+						fclose(fp),
+						remove(strFileName);
+					//
+					// create the .XLSX file
+					//
+					if (1)
+					{
+#define COL_TBL_START (/* start column --> */'O' - 'A')
+						lxw_workbook* workbook = workbook_new(strFileName);
+						lxw_worksheet* worksheet = workbook_add_worksheet(workbook, nullptr);
+						lxw_format* bold = workbook_add_format(workbook);
+						lxw_chart* chart;
+						lxw_chart_series* series;
+						lxw_chartsheet* chartsheet1;
+
+						format_set_bold(bold);
+						format_set_text_wrap(bold);
+						worksheet_set_row(worksheet, 0, 80, bold);
+
+						//
+						// write column title
+						//
+						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
+						{
+							if (false == *parms[i].pEna)
+								continue;
+
+							worksheet_write_string(worksheet, 0, (lxw_col_t)(COL_TBL_START + col), parms[i].szTitle, nullptr);
+							col++;
+						}
+
+						//	
+						// write line numbers, NOTE: for scatter charts x-y coordinates needed , scatter charts must have 'categories' and 'values'  
+						// 
+						for (int j = 0; j < cntSamples; j++)
+						{
+							// write numbers		
+							worksheet_write_number(worksheet, j + 1, COL_TBL_START, j, nullptr);
+						}
+
+						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
+						{
+							if (false == *parms[i].pEna)
+								continue;
+
+							for (int j = 0; j < cntSamples; j++)
+							{
+								/* Write some data for the chart. */
+								worksheet_write_number(worksheet, j + 1, (lxw_col_t)(COL_TBL_START + col), parms[i].rgDriftSecPerDay[j], nullptr);
+							}
+							col++;
+						}
+
+						//
+						// preview diagram on first page
+						//
+						if (1)
+						{
+
+							/* Create a chart object. */
+							chart = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+							//
+							// Configure the chart for all measurements
+							//
+							for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+								i < ELC(parms);
+								i++)
+							{
+								char strCategory[64], strValue[64];
+
+								if (false == *parms[i].pEna)
+									continue;
+
+								sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+								sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+								series = chart_add_series(chart, strCategory, strValue);
+								chart_series_set_name(series, parms[i].szTitle);
+
+								col++;
+
+							}
+							chart_title_set_name(chart, "Overall preview, drift in seconds per day");
+							worksheet_insert_chart(worksheet, CELL("B2"), chart);
+						}
+
+						//
+						// full screen view diagram on second page
+						//
+						if (1)
+						{
+
+							/* Create a chart object. */
+							lxw_chart* chart2 = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+							//
+							// Configure the chart for all measurements
+							//
+							for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+								i < ELC(parms);
+								i++)
+							{
+								char strCategory[64], strValue[64];
+
+								if (false == *parms[i].pEna)
+									continue;
+
+								sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+								sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+								series = chart_add_series(chart2, strCategory, strValue);
+								chart_series_set_name(series, parms[i].szTitle);
+
+								col++;
+
+							}
+							chartsheet1 = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+							// Insert the chart into the chartsheet.
+							lxw_error lxwerr = chartsheet_set_chart(chartsheet1, chart2);
+							chart_title_set_name(chart2, "Overall full screen view");
+							chartsheet_set_landscape(chartsheet1);
+						}
+
+						//
+						// create one additional chartsheet for each single measurement
+						//
+						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+							i < ELC(parms);
+							i++)
+						{
+							char strCategory[64], strValue[64];
+							lxw_chart* chart[ELC(parms)];
+							lxw_chart_series* series[ELC(parms)];
+							lxw_chartsheet* chartsheet[ELC(parms)];
+							//lxw_worksheet* worksheet[ELC(parms)];
+							char sheetnametmp[64];
+
+							if (false == *parms[i].pEna)
+								continue;
+
+							sprintf(sheetnametmp, "Chart%d", col);
+							//		worksheet[i] = workbook_add_worksheet(workbook, nullptr);
+
+									//sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A', 'A', 1 + cntSamples);
+									//sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + col, 'A' + col, 1 + cntSamples);
+							sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+							sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+							// Create the chartsheet.
+							chartsheet[i] = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+							// Create a chart object.
+
+							chart[i] = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+							// Add a data series to the chart.
+					//		chart_add_series(chart, NULL, "=Sheet1!$A$1:$A$6");
+							series[i] = chart_add_series(chart[i], strCategory, strValue);
+							chart_series_set_name(series[i], parms[i].szTitle);
+
+							// Insert the chart into the chartsheet.
+							lxw_error lxwerr = chartsheet_set_chart(chartsheet[i], chart[i]);
+							//printf("%2d: %d\n", i, lxwerr);
+
+							lxwerr = chartsheet_set_header(chartsheet[i], sheetnametmp);
+							chart_title_set_name(chart[i], parms[i].szTitle);
+
+							col++;
+						}
+
+						lxw_error lxwerr = workbook_close(workbook);
+					}
 				}
 
 			} while (0);
@@ -383,29 +623,6 @@ int fnMnuItm_View_Calendar(CTextWindow* pThis, void* pContext, void* pParm)
 	return 0;
 }
 
-/////////////////////////////////////////////////////////////////////////////
-// CONFIG menu functions and strings
-/////////////////////////////////////////////////////////////////////////////
-//
-// gfCfgMngXyz - global flag configuration managed XYZ
-//
-bool gfCfgMngMnuItm_Config_PicApicSelect = true;	// "TIMER: PIT" vs. "TIMER: ACPI" APIT selected by default
-bool gfCfgMngMnuItm_Config_PITDelaySelect1 = true;	// L"  PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 " vs. L"* PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 "	selected by default
-bool gfCfgMngMnuItm_Config_PITDelaySelect2 = false;	// L"  PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 " vs. L"* PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 "
-bool gfCfgMngMnuItm_Config_PITDelaySelect3 = false;	// L"  PIT :  363 *    3287 clocks = 173*19         * 1 " vs. L"* PIT :  363 *    3287 clocks = 173*19         * 1 "
-bool gfCfgMngMnuItm_Config_PITDelaySelect4 = false;	// L"  PIT : 6897 *     173 clocks = 173            * 1 " vs. L"* PIT : 6897 *     173 clocks = 173            * 1 "
-bool gfCfgMngMnuItm_Config_PITDelaySelect5 = false;	// L"  PIT : 9861 *     121 clocks =        11*11   * 1 " vs. L"* PIT : 9861 *     121 clocks =        11*11   * 1 "
-
-bool gfCfgMngMnuItm_Config_ACPIDelaySelect1 = true;	// L"  ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 " vs. L"* ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 "	selected by default
-bool gfCfgMngMnuItm_Config_ACPIDelaySelect2 = false;// L"  ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 " vs. L"* ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 "
-bool gfCfgMngMnuItm_Config_ACPIDelaySelect3 = false;// L"  ACPI:  363 *    9861 clocks = 173*19         * 3 " vs. L"* ACPI:  363 *    9861 clocks = 173*19         * 3 "
-bool gfCfgMngMnuItm_Config_ACPIDelaySelect4 = false;// L"  ACPI: 6897 *     519 clocks = 173            * 3 " vs. L"* ACPI: 6897 *     519 clocks = 173            * 3 "
-bool gfCfgMngMnuItm_Config_ACPIDelaySelect5 = false;// L"  ACPI: 9861 *     363 clocks =        11*11   * 3 " vs. L"* ACPI: 9861 *     363 clocks =        11*11   * 3 "
-
-//wchar_t wcsTimerPicSelected[] = {GEOMETRICSHAPE_RIGHT_TRIANGLE, L" TIMER: PIT    "};
-//wchar_t wcsTimerPicUnSlcted[] = { L"  TIMER: PIT    " };
-//wchar_t wcsTimerAcpiSelected[] = { GEOMETRICSHAPE_RIGHT_TRIANGLE, L" TIMER: ACPI   " };
-//wchar_t wcsTimerAcpiUnSlcted[] = { L"  TIMER: ACPI   " };
 
 const wchar_t* wcsTimerSelectionPicStrings[2][1] =
 {
@@ -422,158 +639,77 @@ const wchar_t* wcsTimerSelectionAcpiStrings[2][1] =
 const wchar_t* wcsTimerDelayPicStrings[2][5] =
 {
 	{
-		L"- PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
-		L"- PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
-		L"- PIT :  363 *    3287 clocks = 173*19         * 1 ",
-		L"- PIT : 6897 *     173 clocks = 173            * 1 ",
-		L"- PIT : 9861 *     121 clocks =        11*11   * 1 "
+		L"- PIT :    1 * 1193181 ticks = 173*19*11*11*3 * 1 ",
+		L"- PIT :   19 *   62799 ticks = 173*   11*11*3 * 1 ",
+		L"- PIT :  363 *    3287 ticks = 173*19         * 1 ",
+		L"- PIT : 6897 *     173 ticks = 173            * 1 ",
+		L"- PIT : 9861 *     121 ticks =        11*11   * 1 "
 	},
 	{
-		L"+ PIT :    1 * 1193181 clocks = 173*19*11*11*3 * 1 ",
-		L"+ PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 ",
-		L"+ PIT :  363 *    3287 clocks = 173*19         * 1 ",
-		L"+ PIT : 6897 *     173 clocks = 173            * 1 ",
-		L"+ PIT : 9861 *     121 clocks =        11*11   * 1 "
+		L"+ PIT :    1 * 1193181 ticks = 173*19*11*11*3 * 1 ",
+		L"+ PIT :   19 *   62799 ticks = 173*   11*11*3 * 1 ",
+		L"+ PIT :  363 *    3287 ticks = 173*19         * 1 ",
+		L"+ PIT : 6897 *     173 ticks = 173            * 1 ",
+		L"+ PIT : 9861 *     121 ticks =        11*11   * 1 "
 	},
 };
 
 const wchar_t* wcsTimerDelayAcpiStrings[2][5] =
 {
 	{
-		L"- ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
-		L"- ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
-		L"- ACPI:  363 *    9861 clocks = 173*19         * 3 ",
-		L"- ACPI: 6897 *     519 clocks = 173            * 3 ",
-		L"- ACPI: 9861 *     363 clocks =        11*11   * 3 "
+		L"- ACPI:    1 * 3579543 ticks = 173*19*11*11*3 * 3 ",
+		L"- ACPI:   19 *  188397 ticks = 173*   11*11*3 * 3 ",
+		L"- ACPI:  363 *    9861 ticks = 173*19         * 3 ",
+		L"- ACPI: 6897 *     519 ticks = 173            * 3 ",
+		L"- ACPI: 9861 *     363 ticks =        11*11   * 3 "
 	},
 	{
-		L"+ ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 ",
-		L"+ ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 ",
-		L"+ ACPI:  363 *    9861 clocks = 173*19         * 3 ",
-		L"+ ACPI: 6897 *     519 clocks = 173            * 3 ",
-		L"+ ACPI: 9861 *     363 clocks =        11*11   * 3 "
+		L"+ ACPI:    1 * 3579543 ticks = 173*19*11*11*3 * 3 ",
+		L"+ ACPI:   19 *  188397 ticks = 173*   11*11*3 * 3 ",
+		L"+ ACPI:  363 *    9861 ticks = 173*19         * 3 ",
+		L"+ ACPI: 6897 *     519 ticks = 173            * 3 ",
+		L"+ ACPI: 9861 *     363 ticks =        11*11   * 3 "
 	},
 };
-//  PIT :    1 * 1193181 clocks = 173*19*11*11*3x1
-//  PIT :   19 *   62799 clocks = 173*   11*11*3x1
-//  PIT :  363 *    3287 clocks = 173*19        x1 
-//  PIT : 6897 *     173 clocks = 173           x1 
-//  PIT : 9861 *     121 clocks =        11*11  x1 
+const wchar_t* wcsDEBURRING[2][1] =
+{
+	{
+		L"- DEBURRING: skip samples aside 100 x average     ",
+	},
+	{
+		L"+ DEBURRING: skip samples aside 100 x average     ",
+	},
+};
 
-//  ACPI:    1 * 1193181 clocks = 173*19*11*11*3x3
-//  ACPI:   19 *   62799 clocks = 173*   11*11*3x3
-//  ACPI:  363 *    3287 clocks = 173*19        x3 
-//  ACPI: 6897 *     173 clocks = 173           x3 
-//  ACPI: 9861 *     121 clocks =        11*11  x3 
-
-//     1 * 1193181 = 173 19 11 11 3
-//    19 *   62799 = 173    11 11 3
-//   363 *    3287 = 173 19         
-//  6897 *     173 = 173            
-//  9861 *     121 =        11 11   
-
-//     1 * 1193181 = 173 19 11 11 3
-//     3 *  397727 = 173 19 11 11   
-//    11 *  108471 = 173 19 11    3
-//    19 *   62799 = 173    11 11 3
-//    33 *   36157 = 173 19 11      
-//    57 *   20933 = 173    11 11   
-//   121 *    9861 = 173 19       3
-//   173 *    6897 =     19 11 11 3
-//   209 *    5709 = 173    11    3
-//   363 *    3287 = 173 19         
-//   519 *    2299 =     19 11 11   
-//   627 *    1903 = 173    11      
-//  1903 *     627 =     19 11    3
-//  2299 *     519 = 173          3
-//  3287 *     363 =        11 11 3
-//  5709 *     209 =     19 11      
-//  6897 *     173 = 173            
-//  9861 *     121 =        11 11   
-// 20933 *      57 =     19       3
-// 36157 *      33 =        11    3
-// 62799 *      19 =     19         
-//108471 *      11 =           11   
-//397727 *       3 =              3
-
-//void fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext)
-//{
-//
-//	CTextWindow* pRoot = pThis->TextWindowGetRoot();
+//int fnMnuItm_Config_PITDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm)
+//{ 
+//	CTextWindow* pRoot = pThis->TextWindowGetRoot(); 
+//	char* pParmStr = (char*)pParm;
 //	menu_t* pMenu = (menu_t*)pContext;
+//	int nRet = 0;
+//	
+//	if (0 == strcmp("ENTER", pParmStr))				// Enter?
+//		pThis->TextClearWindow(pRoot->WinAtt);		// ... destroy menu, don't refresh
+//	else {
+//		gfCfgMngMnuItm_Config_PITDelaySelect1 ^= 1;
+//		pMenu->rgwcsMenuItem[0/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0]);
+//		nRet = 1;									// ... keep menu and refresh
+//	}
 //
-//	gfCfgMngMnuItm_Config_PicApicSelect = 0;
-//
-//	pMenu->rgwcsMenuItem[0] = (wchar_t*)wcsTimerSelectionAcpiStrings[gfCfgMngMnuItm_Config_PicApicSelect][0];//wcsTimerAcpiUnSlcted;
-//	pMenu->rgwcsMenuItem[1] = (wchar_t*)wcsTimerSelectionPicStrings[!gfCfgMngMnuItm_Config_PicApicSelect][0];//wcsTimerPicSelected;
-//
-//	pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect1][0];
-//	pMenu->rgwcsMenuItem[4/* index 4 */] = (wchar_t*)wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect2][1];
-//	pMenu->rgwcsMenuItem[5/* index 5 */] = (wchar_t*)wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect3][2];
-//	pMenu->rgwcsMenuItem[6/* index 6 */] = (wchar_t*)wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect4][3];
-//	pMenu->rgwcsMenuItem[7/* index 7 */] = (wchar_t*)wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_DelaySelect5][4];
-//
-//	pThis->TextClearWindow(pRoot->WinAtt);	// delete menu window on exit
+//	return nRet;
 //}
 //
-//void fnMnuItm_Config_ACPIDelaySelect0(CTextWindow* pThis, void* pContext)
-//{
-//	CTextWindow* pRoot = pThis->TextWindowGetRoot();
-//	menu_t* pMenu = (menu_t*)pContext;
-//
-//	gfCfgMngMnuItm_Config_PicApicSelect = 1;
-//
-//	pMenu->rgwcsMenuItem[0] = (wchar_t*)wcsTimerSelectionAcpiStrings[gfCfgMngMnuItm_Config_PicApicSelect][0];
-//	pMenu->rgwcsMenuItem[1] = (wchar_t*)wcsTimerSelectionPicStrings[!gfCfgMngMnuItm_Config_PicApicSelect][0];
-//
-//	pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_DelaySelect1][0];
-//	pMenu->rgwcsMenuItem[4/* index 3 */] = (wchar_t*)wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_DelaySelect2][1];
-//	pMenu->rgwcsMenuItem[5/* index 3 */] = (wchar_t*)wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_DelaySelect3][2];
-//	pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_DelaySelect4][3];
-//	pMenu->rgwcsMenuItem[7/* index 3 */] = (wchar_t*)wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_DelaySelect5][4];
-//
-//	pThis->TextClearWindow(pRoot->WinAtt);	// delete menu window on exit
-//}
+//int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;  		pMenu->rgwcsMenuItem[1/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1]); nRet = 1; }return nRet; }
+//int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2]); nRet = 1; }return nRet; }
+//int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3]); nRet = 1; }return nRet; }
+//int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4]); nRet = 1; }return nRet; }
 
-int fnMnuItm_Config_PITDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm)
-{ 
-	CTextWindow* pRoot = pThis->TextWindowGetRoot(); 
-	char* pParmStr = (char*)pParm;
-	menu_t* pMenu = (menu_t*)pContext;
-	int nRet = 0;
-	
-	if (0 == strcmp("ENTER", pParmStr))				// Enter?
-		pThis->TextClearWindow(pRoot->WinAtt);		// ... destroy menu, don't refresh
-	else {
-		gfCfgMngMnuItm_Config_PITDelaySelect1 ^= 1;
-		pMenu->rgwcsMenuItem[0/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0]);
-		nRet = 1;									// ... keep menu and refresh
-	}
-
-	return nRet;
-}
-
-int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;  		pMenu->rgwcsMenuItem[1/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][0]); nRet = 1; }return nRet; }
-
-int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;		pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[7/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[8/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[9/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][0]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[10/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][0]); nRet = 1; }return nRet; }
-
-//int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[1/* index 4 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 5 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 6 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 7 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//
-//int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;	pMenu->rgwcsMenuItem[6/* index 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;	pMenu->rgwcsMenuItem[7/* index 4 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;	pMenu->rgwcsMenuItem[8/* index 5 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;	pMenu->rgwcsMenuItem[9/* index 6 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt);else nRet = 1;return nRet;}
-//int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); menu_t* pMenu = (menu_t*)pContext;	int nRet = 0;char* pParmStr = (char*)pParm;gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;	pMenu->rgwcsMenuItem[10/* index 7 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4]);	pThis->TextClearWindow(pRoot->WinAtt); if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else nRet = 1; return nRet;}
+int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;		pMenu->rgwcsMenuItem[0/* menu item 0 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[1/* menu item 1 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* menu item 2 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* menu item 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* menu item 4 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_DEBURRING       (CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_DEBURRING        ^= 1;		pMenu->rgwcsMenuItem[5/* menu item 5 */] = (wchar_t*)(wcsDEBURRING            [gfCfgMngMnuItm_Config_DEBURRING       ][0]); nRet = 1; }return nRet; }
 
 int gidxCfgMngMnuItm_Config_NumSamples = 0;		// index of selected NumSamples 0/1/2/3, saved at program exit
 
@@ -890,7 +1026,7 @@ int main(int argc, char** argv)
 		if (nullptr != fp)
 		{
 			printf("reading cfg file\n");
-			int tok = fscanf(fp, "gfCfgMngMnuItm_View_Clock = %hhu\ngfCfgMngMnuItm_View_Calendar = %hhu\ngfCfgMngMnuItm_Config_PicApicSelect = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect1   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect2   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect3   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect4   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect5   = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect1  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect2  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect3  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect4  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect5  = %hhu\ngidxCfgMngMnuItm_Config_NumSamples = %d",
+			int tok = fscanf(fp, "gfCfgMngMnuItm_View_Clock = %hhu\ngfCfgMngMnuItm_View_Calendar = %hhu\ngfCfgMngMnuItm_Config_PicApicSelect = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect1   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect2   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect3   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect4   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect5   = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect1  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect2  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect3  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect4  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect5  = %hhu\ngfCfgMngMnuItm_Config_DEBURRING  = %hhu\ngidxCfgMngMnuItm_Config_NumSamples = %d",
 
 				(char*)&gfCfgMngMnuItm_View_Clock,
 				(char*)&gfCfgMngMnuItm_View_Calendar,
@@ -906,25 +1042,53 @@ int main(int argc, char** argv)
 				(char*)&gfCfgMngMnuItm_Config_ACPIDelaySelect3,
 				(char*)&gfCfgMngMnuItm_Config_ACPIDelaySelect4,
 				(char*)&gfCfgMngMnuItm_Config_ACPIDelaySelect5,
+				(char*)&gfCfgMngMnuItm_Config_DEBURRING,
 
 				(int*)&gidxCfgMngMnuItm_Config_NumSamples
 			);
 
-			//bool gfCfgMngMnuItm_Config_PITDelaySelect2 = false;	// L"  PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 " vs. L"* PIT :   19 *   62799 clocks = 173*   11*11*3 * 1 "
-			//bool gfCfgMngMnuItm_Config_PITDelaySelect3 = false;	// L"  PIT :  363 *    3287 clocks = 173*19         * 1 " vs. L"* PIT :  363 *    3287 clocks = 173*19         * 1 "
-			//bool gfCfgMngMnuItm_Config_PITDelaySelect4 = false;	// L"  PIT : 6897 *     173 clocks = 173            * 1 " vs. L"* PIT : 6897 *     173 clocks = 173            * 1 "
-			//bool gfCfgMngMnuItm_Config_PITDelaySelect5 = false;	// L"  PIT : 9861 *     121 clocks =        11*11   * 1 " vs. L"* PIT : 9861 *     121 clocks =        11*11   * 1 "
-
-			//bool gfCfgMngMnuItm_Config_ACPIDelaySelect1 = true;	// L"  ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 " vs. L"* ACPI:    1 * 3579543 clocks = 173*19*11*11*3 * 3 "	selected by default
-			//bool gfCfgMngMnuItm_Config_ACPIDelaySelect2 = false;// L"  ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 " vs. L"* ACPI:   19 *  188397 clocks = 173*   11*11*3 * 3 "
-			//bool gfCfgMngMnuItm_Config_ACPIDelaySelect3 = false;// L"  ACPI:  363 *    9861 clocks = 173*19         * 3 " vs. L"* ACPI:  363 *    9861 clocks = 173*19         * 3 "
-			//bool gfCfgMngMnuItm_Config_ACPIDelaySelect4 = false;// L"  ACPI: 6897 *     519 clocks = 173            * 3 " vs. L"* ACPI: 6897 *     519 clocks = 173            * 3 "
-			//bool gfCfgMngMnuItm_Config_ACPIDelaySelect5 = false;// L"  ACPI: 9861 *     363 clocks =        11*11   * 3 " vs. L"* ACPI: 9861 *     363 clocks =        11*11   * 3 "
-
-			//printf("tok %d\ngfCfgMngMnuItm_View_Clock %d\ngfCfgMngMnuItm_View_Calendar %d\n", tok, gfCfgMngMnuItm_View_Clock, gfCfgMngMnuItm_View_Calendar);
 		}
 	}
 
+	//
+	// wait 10sec by RTC UIP flag
+	//
+	if (1)
+	{
+#define SECONDS 1
+		uint64_t qwTSCEnd, qwTSCStart;
+		int sec = 1 + SECONDS;
+
+		//
+		// wait UP (update ended) interrupt flag to start on time https://www.nxp.com/docs/en/data-sheet/MC146818.pdf#page=16
+		// 
+		printf("%d seconds for ultra precise TSC calibration ... \n", SECONDS);
+
+		for (int i = 0; i < 1; i++)
+		{
+
+			sec = 1 + SECONDS;
+			_disable();
+
+			while (_outp(0x70, 0x0C), 0 != (0x10 & _inp(0x71)));	// clear currently set UP
+
+			while (0 == (0x10 & _inp(0x71)));						// wait until new second starts (1 == UP)
+
+			qwTSCStart = __rdtsc();									// get start TSC
+
+			while (--sec)
+				while (0 == (0x10 & _inp(0x71)));					// wait until UP flag set again
+
+			qwTSCEnd = __rdtsc();									// get end TSC
+
+
+			printf("diff %lld, qwTSCEnd %lld, qwTSCStart %lld\n", (qwTSCEnd - qwTSCStart) / SECONDS, qwTSCEnd, qwTSCStart);
+
+		}
+		gTSCPerSecondReference = (qwTSCEnd - qwTSCStart) / SECONDS;
+	}
+
+	//exit(0);
 	//printf("sizeof(bool) %zd\n", sizeof(bool));
 
 	do
@@ -935,39 +1099,46 @@ int main(int argc, char** argv)
 
 		menu_t menu[] =
 		{
-			{{04,0},	L" File ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Save As         ",L"Exit            ",L"Save/Exit        "},{&fnMnuItm_File_SaveAs, &fnMnuItm_File_Exit,&fnMnuItm_File_SaveExit}},
+			{{04,0},	L" File ",		nullptr,{43,6/* # menuitems + 2 */},	/*{false},*/ {	L"Save series of measurements as .XLSX...",
+																								wcsSeparator17,
+																								L"Exit...                                ",
+																								L"Save and Exit...                       "},{&fnMnuItm_File_SaveAs, nullptr, &fnMnuItm_File_Exit,&fnMnuItm_File_SaveExit}},
 			{{12,0},	L" View ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Hex/Sym view    ",L"Clock           ",L"Calendar        " },{&fnMnuItm_View_HexSym,&fnMnuItm_View_Clock,&fnMnuItm_View_Calendar}},
 			{{20,0},	L" Help ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false, false},*/ {L"About           ",L"KEYBOARD DEBUG  "},{&fnMnuItm_About_0, &fnMnuItm_About_1 }},
-			{{28,0},	L" CONFIG ",	nullptr,{55,15/* # menuitems + 2 */},	/*{false, false, true, false},*/
+			{{28,0},	L" CONFIG ",	nullptr,{55,11/* # menuitems + 2 */},	/*{false, false, true, false},*/
 				{
-					/*index 3 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0],	/* selected by default menu strings */
-					/*index 4 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1],
-					/*index 5 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2],
-					/*index 6 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3],
-					/*index 7 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4],
-					/*index 2 */ wcsSeparator17,
+					///*index 3 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0],	/* selected by default menu strings */
+					///*index 4 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1],
+					///*index 5 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2],
+					///*index 6 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3],
+					///*index 7 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4],
+					///*index 2 */ wcsSeparator17,
 					/*index 3 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0],	/* selected by default menu strings */
 					/*index 4 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1],
 					/*index 5 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2],
 					/*index 6 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3],
 					/*index 7 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4],
 					/*index 8 */ wcsSeparator17,
-					/*index 9 */ L"  NumSamples # \x25BA",
+					/*index 9 */ L"  NumSamples #                                   \x25BA",
+					/*index10 */ wcsSeparator17,
+					/*index11 */ wcsDEBURRING[gfCfgMngMnuItm_Config_DEBURRING][0],
 				},
 				{
-					/*index 0 */ &fnMnuItm_Config_PITDelaySelect1,
-					/*index 1 */ &fnMnuItm_Config_PITDelaySelect2,
-					/*index 1 */ &fnMnuItm_Config_PITDelaySelect3,
-					/*index 1 */ &fnMnuItm_Config_PITDelaySelect4,
-					/*index 1 */ &fnMnuItm_Config_PITDelaySelect5,
-					/*index 2 */ nullptr/* nullptr identifies SEPARATOR */,
+					///*index 0 */ &fnMnuItm_Config_PITDelaySelect1,
+					///*index 1 */ &fnMnuItm_Config_PITDelaySelect2,
+					///*index 1 */ &fnMnuItm_Config_PITDelaySelect3,
+					///*index 1 */ &fnMnuItm_Config_PITDelaySelect4,
+					///*index 1 */ &fnMnuItm_Config_PITDelaySelect5,
+					///*index 2 */ nullptr/* nullptr identifies SEPARATOR */,
 					/*index 3 */ &fnMnuItm_Config_ACPIDelaySelect1,
 					/*index 4 */ &fnMnuItm_Config_ACPIDelaySelect2,
 					/*index 5 */ &fnMnuItm_Config_ACPIDelaySelect3,
 					/*index 6 */ &fnMnuItm_Config_ACPIDelaySelect4,
 					/*index 7 */ &fnMnuItm_Config_ACPIDelaySelect5,
 					/*index 8 */ nullptr/* nullptr identifies SEPARATOR */,
-					/*index 9 */ &fnMnuItm_NumSamples,
+					/*index 9 */& fnMnuItm_NumSamples,
+					/*index10 */ nullptr/* nullptr identifies SEPARATOR */,
+					/*index11 */& fnMnuItm_Config_DEBURRING,
 					}
 				},
 				{ {38,0},	L"   RUN   ",		nullptr,{20,3/* # menuitems + 2 */},	/*{false, false},*/ {L"Run CONFIG      "},{&fnMnuItm_RunConfig_0}},
@@ -1079,6 +1250,20 @@ int main(int argc, char** argv)
 
 				switch (state) {
 				case MENU_ENTER_ACTIVATION:
+					//
+					// clear main window since refresh for text block is not yet fully supported (for multiple text blocks, only for one...)
+					//
+					if (1) {
+						wchar_t wcstmp[16];
+						swprintf(wcstmp, INT_MAX, L"%%.%ds", FullScreen.WinDim.X - 2);
+
+						for (int i = 2; i < FullScreen.WinDim.Y - 2; i++)
+							FullScreen.TextPrint({ 1, i + FullScreen.WinPos.Y }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, wcstmp, FullScreen.pwcsWinClrLine);
+					}
+
+					//
+					//  highlight the menu name
+					//
 					FullScreen.TextPrint(menu[idxMenu].RelPos, EFI_BACKGROUND_CYAN | EFI_YELLOW, menu[idxMenu].wcsMenuName);
 					//
 					// clear STATUS BAR by setting blink:=0
@@ -1267,46 +1452,6 @@ int main(int argc, char** argv)
 					
 					if (gfRunConfig)
 					{
-						//  gfCfgMngMnuItm_Config_PITDelaySelect1
-						//	gfCfgMngMnuItm_Config_PITDelaySelect2
-						//	gfCfgMngMnuItm_Config_PITDelaySelect3
-						//	gfCfgMngMnuItm_Config_PITDelaySelect4
-						//	gfCfgMngMnuItm_Config_PITDelaySelect5
-
-						//	gfCfgMngMnuItm_Config_ACPIDelaySelect1
-						//	gfCfgMngMnuItm_Config_ACPIDelaySelect2
-						//	gfCfgMngMnuItm_Config_ACPIDelaySelect3
-						//	gfCfgMngMnuItm_Config_ACPIDelaySelect4
-						//	gfCfgMngMnuItm_Config_ACPIDelaySelect5
-						static uint64_t statbuf4maxall[1250 * 10];	// one buffer for all
-						int cntSamples = 0;
-						static struct {
-							char szTitle[64];
-							uint32_t delay;
-							uint32_t mul;
-							uint64_t(*pfnDelay)(uint32_t  Delay);
-							bool* pEna;
-							uint64_t* rgDiffTSC;	// equivalence of arrays and pointers
-							//uint64_t diffTSC;
-							//uint64_t sum;
-							//uint64_t max;
-							//uint64_t min;
-						}parms[] = {
-							//PIT
-							{"i8254 PIT ticks : 1 * 1193181 x    1",1 * 1193181,1, &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect1,	&statbuf4maxall[0 * 1250]},
-							{"i8254 PIT ticks : 1 * 62799   x   19",1 * 62799,19 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect2,	&statbuf4maxall[1 * 1250]},
-							//{"i8254 PIT fixed : 1 * 3287    x  363",1 * 3287,363 , &_osifIbmAtGetTscPer62799, &gfCfgMngMnuItm_Config_PITDelaySelect3,	&statbuf4maxall[2 * 1250]},
-							{"i8254 PIT fixed : 1 * 3287    x  363",1 * 62799,19 , &_osifIbmAtGetTscPer62799, &gfCfgMngMnuItm_Config_PITDelaySelect3,	&statbuf4maxall[2 * 1250]},
-							{"i8254 PIT ticks : 1 * 173     x 6897",1 * 173,6897 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect4,	&statbuf4maxall[3 * 1250]},
-							{"i8254 PIT ticks : 1 * 121     x 9861",1 * 121,9861 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect5,	&statbuf4maxall[4 * 1250]},
-							// ACPI
-							{"ACPI PMTmr ticks: 3 * 1193181 x    1",3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1,	&statbuf4maxall[5 * 1250]},
-							{"ACPI PMTmr ticks: 3 * 62799   x   19",3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2,	&statbuf4maxall[6 * 1250]},
-							{"ACPI PMTmr ticks: 3 * 3287    x  363",3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3,	&statbuf4maxall[7 * 1250]},
-							{"ACPI PMTmr ticks: 3 * 173     x 6897",3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4,	&statbuf4maxall[8 * 1250]},
-							{"ACPI PMTmr ticks: 3 * 121     x 9861",3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5,	&statbuf4maxall[9 * 1250]},
-						};
-						
 						switch (gidxCfgMngMnuItm_Config_NumSamples) 
 						{
 							case 0: cntSamples = 10; break;
@@ -1315,26 +1460,53 @@ int main(int argc, char** argv)
 							case 3: cntSamples = 1250; break;
 						}
 
-						for (int i = 0; i < ELC(parms); i++)
+						for (int i = 0, l = 0; i < ELC(parms); i++)
 						{
-							FullScreen.TextBlockDraw({ 5,5 + i }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "%s: ", parms[i].szTitle);
-							FullScreen.TextBlockDraw({ 5 + (int32_t)strlen(parms[i].szTitle),5 + i}, EFI_BACKGROUND_LIGHTGRAY | EFI_WHITE, " %s", *parms[i].pEna ? "enabled" : "disabled");
-						}
-						FullScreen.TextBlockDraw({ 5,16}, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "Number of samples: ");
-						FullScreen.TextBlockDraw({ 5 + (int)strlen("Number of samples: "),16}, EFI_BACKGROUND_LIGHTGRAY | EFI_WHITE, "%d", cntSamples);
-
-						for (int i = 0; i < ELC(parms); i++)
-						{
-							if (true == *parms[i].pEna)
+							char strbuftmp[128];
+							if (false == *parms[i].pEna)
+								continue;
+							sprintf(strbuftmp,"running %d x \"%s\" ... ", cntSamples, parms[i].szTitle);
+							FullScreen.TextBlockDraw({ 5,5 + l }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "%s", strbuftmp);
+							
+							parms[i].dblDiffTSCAverage = 0;
+							
+							//
+							// do the measurement, calculate the average
+							//
+							if (1)
 							{
 								for (int j = 0; j < cntSamples; j++)
 								{
 									parms[i].rgDiffTSC[j] = parms[i].pfnDelay(parms[i].delay);
-									FullScreen.TextBlockDraw({ 5,18 + j }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "                                                  ");
-									FullScreen.TextBlockDraw({ 5,18 + j }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "%30d", parms[i].rgDiffTSC[j] * parms[i].mul);
+									parms[i].dblDiffTSCAverage += parms[i].rgDiffTSC[j];
+								}
+
+								parms[i].dblDiffTSCAverage /= cntSamples;
+								parms[i].dblDiffTSCAverageScaled2EntireDay = (double)((parms[i].dblDiffTSCAverage * parms[i].dwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
+							}
+							//
+							// scale each sample to entire day (86400 seconds), do DEBURRING, if selected -- remove glitches 100 times outside average
+							//
+							if (1) {
+								for (int j = 0; j < cntSamples; j++)
+								{
+									double dblTSC = parms[i].rgDiffTSC[j];
+									double dblScaled2EntireDay = (double)((dblTSC * parms[i].dwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
+
+									if (true == gfCfgMngMnuItm_Config_DEBURRING)
+									{
+										if (dblScaled2EntireDay > 5 * parms[i].dblDiffTSCAverageScaled2EntireDay)
+											dblScaled2EntireDay = 0.0;// parms[i].dblDiffTSCAverageScaled2EntireDay;
+									}
+
+									parms[i].rgDriftSecPerDay[j] = (double)dblScaled2EntireDay;
 								}
 							}
+
+							FullScreen.TextBlockDraw({ 5 + (int)strlen(strbuftmp),5 + l }, EFI_BACKGROUND_LIGHTGRAY | EFI_WHITE, "FINISHED");
+							l++;
 						}
+
 						gfRunConfig = false;
 					}
 					break;
@@ -1360,7 +1532,7 @@ int main(int argc, char** argv)
 
 		if (nullptr != fp)
 		{
-			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\ngfCfgMngMnuItm_View_Calendar = %hhd\ngfCfgMngMnuItm_Config_PicApicSelect = %hhd\ngfCfgMngMnuItm_Config_PITDelaySelect1  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect2  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect3  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect4  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect5  = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect1 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect2 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect3 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect4 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect5 = % hhd\ngidxCfgMngMnuItm_Config_NumSamples = %d\n",
+			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\ngfCfgMngMnuItm_View_Calendar = %hhd\ngfCfgMngMnuItm_Config_PicApicSelect = %hhd\ngfCfgMngMnuItm_Config_PITDelaySelect1  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect2  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect3  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect4  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect5  = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect1 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect2 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect3 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect4 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect5 = % hhd\ngfCfgMngMnuItm_Config_DEBURRING = % hhd\ngidxCfgMngMnuItm_Config_NumSamples = %d\n",
 				gfCfgMngMnuItm_View_Clock,
 				gfCfgMngMnuItm_View_Calendar,
 				gfCfgMngMnuItm_Config_PicApicSelect,
@@ -1375,6 +1547,7 @@ int main(int argc, char** argv)
 				gfCfgMngMnuItm_Config_ACPIDelaySelect3,
 				gfCfgMngMnuItm_Config_ACPIDelaySelect4,
 				gfCfgMngMnuItm_Config_ACPIDelaySelect5,
+				gfCfgMngMnuItm_Config_DEBURRING,
 
 				gidxCfgMngMnuItm_Config_NumSamples
 
