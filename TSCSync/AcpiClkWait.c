@@ -50,3 +50,8 @@ uint64_t AcpiClkWait/*pseudo delay upcount*/(uint32_t delay)
 
     return qwTSCEnd - qwTSCStart;
 }
+
+void PCIReset(void)
+{
+    outp(0xCF9, 6);
+}

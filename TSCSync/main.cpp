@@ -116,7 +116,7 @@ static struct {
 	uint32_t dwMultiplierToOneSecond;
 	uint64_t(*pfnDelay)(uint32_t  Delay);
 	bool* pEna;
-	uint64_t* rgDiffTSC;	// equivalence of arrays and pointers
+	uint64_t* rgDiffTSC;	    // equivalence of arrays and pointers
 	double* rgDriftSecPerDay;	// equivalence of arrays and pointers
 
 	double dblDiffTSCAverage;
@@ -133,11 +133,11 @@ static struct {
 	//{"i8254 PIT ticks : 1 * 173     x 6897",1 * 173,6897 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect4,	&statbuf4DiffTSC[3 * 1250],&statbuf4DriftSecPerDay[3 * 1250]},
 	//{"i8254 PIT ticks : 1 * 121     x 9861",1 * 121,9861 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect5,	&statbuf4DiffTSC[4 * 1250],&statbuf4DriftSecPerDay[4 * 1250]},
 	// ACPI
-	{"ACPI PMTmr ticks: 3 * 1193181 x    1",3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1,&statbuf4DiffTSC[0 * 1250],&statbuf4DriftSecPerDay[0 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 62799   x   19",3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2,&statbuf4DiffTSC[1 * 1250],&statbuf4DriftSecPerDay[1 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 3287    x  363",3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3,&statbuf4DiffTSC[2 * 1250],&statbuf4DriftSecPerDay[2 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 173     x 6897",3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4,&statbuf4DiffTSC[3 * 1250],&statbuf4DriftSecPerDay[3 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 121     x 9861",3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5,&statbuf4DiffTSC[4 * 1250],&statbuf4DriftSecPerDay[4 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 1193181 x    1",3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 62799   x   19",3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 3287    x  363",3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 173     x 6897",3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{"ACPI PMTmr ticks: 3 * 121     x 9861",3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
 };
 
 char gStatusStringColor = EFI_GREEN;
@@ -709,7 +709,7 @@ int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* p
 int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* menu item 2 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]); nRet = 1; }return nRet; }
 int fnMnuItm_Config_ACPIDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* menu item 3 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect4][3]); nRet = 1; }return nRet; }
 int fnMnuItm_Config_ACPIDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* menu item 4 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect5][4]); nRet = 1; }return nRet; }
-int fnMnuItm_Config_DEBURRING       (CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_DEBURRING        ^= 1;		pMenu->rgwcsMenuItem[5/* menu item 5 */] = (wchar_t*)(wcsDEBURRING            [gfCfgMngMnuItm_Config_DEBURRING       ][0]); nRet = 1; }return nRet; }
+int fnMnuItm_Config_DEBURRING       (CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_DEBURRING        ^= 1;		pMenu->rgwcsMenuItem[8/* menu item 5 */] = (wchar_t*)(wcsDEBURRING            [gfCfgMngMnuItm_Config_DEBURRING       ][0]); nRet = 1; }return nRet; }
 
 int gidxCfgMngMnuItm_Config_NumSamples = 0;		// index of selected NumSamples 0/1/2/3, saved at program exit
 
