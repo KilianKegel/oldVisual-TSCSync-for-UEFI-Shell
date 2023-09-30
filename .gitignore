@@ -1,4 +1,5 @@
 .vs/
 /lib/
 /x64/
-TSCSync/x64
+TSCSync/x64/
+tstxlsx/x64/ 
