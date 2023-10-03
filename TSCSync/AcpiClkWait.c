@@ -6,7 +6,7 @@
 
 uint16_t gPmTmrBlkAddr;
 
-uint64_t AcpiClkWait/*pseudo delay upcount*/(uint32_t delay) 
+int64_t AcpiClkWait/*pseudo delay upcount*/(uint32_t delay) 
 {
 #define COUNTER_WIDTH 24
 //#define COUNTER_INIT  ((1 << COUNTER_WIDTH) - 1) & (uint32_t) - 5                       /* manipulate to random start counts */
@@ -28,6 +28,8 @@ uint64_t AcpiClkWait/*pseudo delay upcount*/(uint32_t delay)
     uint64_t qwTSCStart, qwTSCEnd;
     size_t eflags = __readeflags();                     // save flaags
 
+    _disable();
+
     qwTSCStart = __rdtsc();                             // get TSC start
     do 
     {
@@ -48,7 +50,7 @@ uint64_t AcpiClkWait/*pseudo delay upcount*/(uint32_t delay)
     if (0x200 & eflags)                                 // restore IF interrupt flag
         _enable();
 
-    return qwTSCEnd - qwTSCStart;
+    return (int64_t)(qwTSCEnd - qwTSCStart);
 }
 
 void PCIReset(void)

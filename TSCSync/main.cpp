@@ -1,3 +1,4 @@
+//#define RTCSYNC
 //
 // prefixes used:
 //  dbl - double float
@@ -49,8 +50,8 @@ extern "C" void _disable(void);
 
 extern bool gfKbdDbg;
 extern "C" uint16_t gPmTmrBlkAddr;
-extern "C" uint64_t AcpiClkWait(uint32_t delay);
-extern "C" uint64_t PITClkWait(uint32_t delay);
+extern "C" int64_t AcpiClkWait(uint32_t delay);
+extern "C" int64_t PITClkWait(uint32_t delay);
 extern "C" unsigned long long _osifIbmAtGetTscPer62799(uint32_t delay);
 
 extern "C" WINBASEAPI UINT WINAPI EnumSystemFirmwareTables(
@@ -82,7 +83,7 @@ extern void* rgcbAtUpdateParms[32][3];	// array of parameters: void* pThis, void
 
 #define IODELAY _outp(0xED, 0x55)
 
-uint64_t gTSCPerSecondReference;	// initally taken from RTC UP flag 0x10 Reg 0xC
+int64_t gTSCPerSecondReference;	// initally taken from RTC UP flag 0x10 Reg 0xC
 
 /////////////////////////////////////////////////////////////////////////////
 // CONFIG menu functions and strings
@@ -107,37 +108,53 @@ bool gfCfgMngMnuItm_Config_DEBURRING = true;		// remove measurement glitches (10
 /////////////////////////////////////////////////////////////////////////////
 // global shared data
 /////////////////////////////////////////////////////////////////////////////
-static uint64_t statbuf4DiffTSC[1250 * 10];	// one buffer for all
+char gstrACPISignature[16];
+char gstrACPIOemId[16];
+char gstrACPIOemTableId[16];
+char gstrACPIPmTmrBlkAddr[8];
+char gACPIPmTmrBlkSize[8];
+char gACPIPCIEBase[24];
+
+char gstrCPUID0[32];
+char gstrCPUIDSig[32];
+char gstrCPUIDFam[32];
+char gstrCPUIDMod[32];
+char gstrCPUIDStp[32];
+char gstrCPUSpeed[32];
+
+
+static int64_t statbuf4DiffTSC[1250 * 10];			// one buffer for all
 static double statbuf4DriftSecPerDay[1250 * 10];	// one buffer for all
 static int cntSamples = 0;
 static struct {
 	char szTitle[64];
+	char szTicks[64];
+	char szMultiplier[64];
 	uint32_t delay;
-	uint32_t dwMultiplierToOneSecond;
-	uint64_t(*pfnDelay)(uint32_t  Delay);
+	int64_t qwMultiplierToOneSecond;
+	int64_t(*pfnDelay)(uint32_t  Delay);
 	bool* pEna;
-	uint64_t* rgDiffTSC;	    // equivalence of arrays and pointers
+	int64_t* rgDiffTSC;	    // equivalence of arrays and pointers
 	double* rgDriftSecPerDay;	// equivalence of arrays and pointers
 
 	double dblDiffTSCAverage;
 	double dblDiffTSCAverageScaled2EntireDay;
-	//uint64_t diffTSC;
-	//uint64_t sum;
-	//uint64_t max;
-	//uint64_t min;
 }parms[] = {
-	//PIT
-	//{"i8254 PIT ticks : 1 * 1193181 x    1",1 * 1193181,1, &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect1,	&statbuf4DiffTSC[0 * 1250],&statbuf4DriftSecPerDay[0 * 1250]},
-	//{"i8254 PIT ticks : 1 * 62799   x   19",1 * 62799,19 , &_osifIbmAtGetTscPer62799          , &gfCfgMngMnuItm_Config_PITDelaySelect2,	&statbuf4DiffTSC[1 * 1250],&statbuf4DriftSecPerDay[1 * 1250]},
-	//{"i8254 PIT fixed : 1 * 3287    x  363",1 * 3287,363 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect3,	&statbuf4DiffTSC[2 * 1250],&statbuf4DriftSecPerDay[2 * 1250]},
-	//{"i8254 PIT ticks : 1 * 173     x 6897",1 * 173,6897 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect4,	&statbuf4DiffTSC[3 * 1250],&statbuf4DriftSecPerDay[3 * 1250]},
-	//{"i8254 PIT ticks : 1 * 121     x 9861",1 * 121,9861 , &PITClkWait, &gfCfgMngMnuItm_Config_PITDelaySelect5,	&statbuf4DiffTSC[4 * 1250],&statbuf4DriftSecPerDay[4 * 1250]},
 	// ACPI
-	{"ACPI PMTmr ticks: 3 * 1193181 x    1",3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 62799   x   19",3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 3287    x  363",3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 173     x 6897",3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
-	{"ACPI PMTmr ticks: 3 * 121     x 9861",3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{
+		"ACPI timer ticks per second:\n3579543 x    1","3579543","1",
+		3 * 1193181,1, &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect1, &statbuf4DiffTSC[0 * 1250], &statbuf4DriftSecPerDay[0 * 1250]},
+	{	
+		"ACPI timer ticks per second:\n188397  x   19","188397","19",
+		3 * 62799,19 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect2, &statbuf4DiffTSC[1 * 1250], &statbuf4DriftSecPerDay[1 * 1250]},
+	{
+		"ACPI timer ticks per second:\n29583   x  363","29583","363",
+		3 * 3287,363 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect3, &statbuf4DiffTSC[2 * 1250], &statbuf4DriftSecPerDay[2 * 1250]},
+	{
+		"ACPI timer ticks per second:\n519     x 6897","519","6897",
+		3 * 173,6897 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect4, &statbuf4DiffTSC[3 * 1250], &statbuf4DriftSecPerDay[3 * 1250]},
+	{	"ACPI timer ticks per second:\n363     x 9861","363","9861",
+		3 * 121,9861 , &AcpiClkWait, &gfCfgMngMnuItm_Config_ACPIDelaySelect5, &statbuf4DiffTSC[4 * 1250], &statbuf4DriftSecPerDay[4 * 1250]},
 };
 
 char gStatusStringColor = EFI_GREEN;
@@ -207,11 +224,17 @@ bool gfExit = false;
 bool gfSaveExit = false;
 bool gfHexView = false;
 bool gfRunConfig = false;
+bool gfAutoRun = false;
+
+bool gfStatusLineVisible;
 //
 // gfCfgMngXyz - global flag configuration managed XYZ
 //
 bool gfCfgMngMnuItm_View_Clock = true;
 bool gfCfgMngMnuItm_View_Calendar = true;
+char gfCfgStr_File_SaveAs[256];
+bool gfCfgRefSyncRTC = false;	//false -> ACPI, true -> RTC
+int  gnCfgRefSyncTime = 1;		//sync time/delay
 
 /////////////////////////////////////////////////////////////////////////////
 // FILE menu functions and strings
@@ -240,11 +263,13 @@ int fnMnuItm_File_SaveExit(CTextWindow* pThis, void* pContext, void* pParm)
 
 int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 {
+	FILE* fp;
+	bool fFileExists;	// flag file exists
+	bool fCreateOvrd;	// flag CreateOverride
 	CTextWindow* pSaveAsBox;
-	CTextWindow* pRoot = pThis->TextWindowGetRoot();	// get FullScreen window
-	char strFileName[256] = { "" };
+	CTextWindow* pRoot = pThis->TextWindowGetRoot();		// get FullScreen window
 
-	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
+	if (0 == strcmp("ENTER", (char*)pParm))					// ENTER?
 	{
 		pThis->TextClearWindow(pRoot->WinAtt);				// clear the pull down menu 
 		pRoot->TextBlockRfrsh();							// refresh the main window
@@ -272,28 +297,27 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 		if (1)
 		{
 			TEXT_KEY key;
-			if (1) {
-				int i = 0;
+
+			if (1) 
+			{
+				int i = strlen(gfCfgStr_File_SaveAs);												// initial cursor position
 				for (key = pThis->TextGetKey();
 					KEY_ESC != key && KEY_ENTER != key;
 					key = pThis->TextGetKey(), pThis->TextWindowUpdateProgress())
 				{
-
-					pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, strFileName);
+					pSaveAsBox->TextPrint({ 2    ,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, gfCfgStr_File_SaveAs);
 					pSaveAsBox->TextPrint({ 2 + i,2 }, 4 & blink++ ? EFI_BACKGROUND_RED | EFI_WHITE : EFI_BACKGROUND_BLUE | EFI_WHITE, " ");//blink the cursor
-
-					//debug pSaveAsBox->TextPrint({ 0,0 }, "%3d %04X", i, pThis->KeyData.Key.UnicodeChar);
 
 					if (0xFFFF != pThis->KeyData.Key.UnicodeChar
 						&& 0x0000 != pThis->KeyData.Key.UnicodeChar)
 					{
 						if ('\b'/* back space */ == (char)pThis->KeyData.Key.UnicodeChar)
 							pSaveAsBox->TextPrint({ 2 + i,2 }, EFI_BACKGROUND_BLUE | EFI_WHITE, " "),	// clear old cursor
-							i--;																	// adjust new curor position
+							i--;																		// adjust new curor position
 						else
-							strFileName[i++] = (char)pThis->KeyData.Key.UnicodeChar;
+							gfCfgStr_File_SaveAs[i++] = (char)pThis->KeyData.Key.UnicodeChar;
 
-						strFileName[i] = '\0';
+						gfCfgStr_File_SaveAs[i] = '\0';
 					}
 				}
 			}
@@ -305,10 +329,11 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 			if (KEY_ENTER == key) do
 			{
 				errno = 0;
-				FILE* fp = fopen(strFileName, "r");
-				bool fFileExists = (nullptr != fp);	// flag file exists
-				bool fCreateOvrd = !fFileExists;	// flag CreateOverride
+				fp = fopen(gfCfgStr_File_SaveAs, "r");
+				fFileExists = (nullptr != fp);	// flag file exists
+				fCreateOvrd = !fFileExists;	// flag CreateOverride
 
+				strcpy(gfCfgStr_File_SaveAs, gfCfgStr_File_SaveAs);
 				//
 				// FILE OVERRIDE Input BOX - start
 				//
@@ -324,7 +349,7 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 
 					pRoot->TextBlockRfrsh();										// refresh the background
 
-					snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", strFileName);
+					snprintf(strtmp, sizeof(strtmp), "\"%s\" overwrite?", gfCfgStr_File_SaveAs);
 					int DBWIDTH/* InputBox width */ = 16 < strlen(strtmp) ? 4 + (int)strlen(strtmp) : 20;
 
 					CTextWindow* pDialogBox = new CTextWindow(						// create Y/N Dialog BOX
@@ -383,216 +408,263 @@ int fnMnuItm_File_SaveAs(CTextWindow* pThis, void* pContext, void* pParm)
 						blink = UINT_MAX & ~3;
 					}
 				}
-
-				if (fCreateOvrd)
-				{
-					errno = 0;
-					fp = fopen(strFileName, "w+");
-					fFileExists = (nullptr != fp);
-					swprintf(wcsStatusBar, sizeof(STATUSSTRING) - 1, L"%hs",
-						fFileExists ? "STATUS: Success" : strerror(errno));
-					gStatusStringColor = fFileExists ? EFI_GREEN : EFI_RED;
-					blink = fFileExists ? 0x3C : UINT_MAX & ~3;
-					
-					// delete strFileName
-					if (fFileExists)
-						fclose(fp),
-						remove(strFileName);
-					//
-					// create the .XLSX file
-					//
-					if (1)
-					{
-#define COL_TBL_START (/* start column --> */'O' - 'A')
-						lxw_workbook* workbook = workbook_new(strFileName);
-						lxw_worksheet* worksheet = workbook_add_worksheet(workbook, nullptr);
-						lxw_format* bold = workbook_add_format(workbook);
-						lxw_chart* chart;
-						lxw_chart_series* series;
-						lxw_chartsheet* chartsheet1;
-
-						format_set_bold(bold);
-						format_set_text_wrap(bold);
-						worksheet_set_row(worksheet, 0, 80, bold);
-
-						//
-						// write column title
-						//
-						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
-						{
-							if (false == *parms[i].pEna)
-								continue;
-
-							worksheet_write_string(worksheet, 0, (lxw_col_t)(COL_TBL_START + col), parms[i].szTitle, nullptr);
-							col++;
-						}
-
-						//	
-						// write line numbers, NOTE: for scatter charts x-y coordinates needed , scatter charts must have 'categories' and 'values'  
-						// 
-						for (int j = 0; j < cntSamples; j++)
-						{
-							// write numbers		
-							worksheet_write_number(worksheet, j + 1, COL_TBL_START, j, nullptr);
-						}
-
-						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
-						{
-							if (false == *parms[i].pEna)
-								continue;
-
-							for (int j = 0; j < cntSamples; j++)
-							{
-								/* Write some data for the chart. */
-								worksheet_write_number(worksheet, j + 1, (lxw_col_t)(COL_TBL_START + col), parms[i].rgDriftSecPerDay[j], nullptr);
-							}
-							col++;
-						}
-
-						//
-						// preview diagram on first page
-						//
-						if (1)
-						{
-
-							/* Create a chart object. */
-							chart = workbook_add_chart(workbook, LXW_CHART_SCATTER);
-
-							//
-							// Configure the chart for all measurements
-							//
-							for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
-								i < ELC(parms);
-								i++)
-							{
-								char strCategory[64], strValue[64];
-
-								if (false == *parms[i].pEna)
-									continue;
-
-								sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
-								sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
-
-								series = chart_add_series(chart, strCategory, strValue);
-								chart_series_set_name(series, parms[i].szTitle);
-
-								col++;
-
-							}
-							chart_title_set_name(chart, "Overall preview, drift in seconds per day");
-							worksheet_insert_chart(worksheet, CELL("B2"), chart);
-						}
-
-						//
-						// full screen view diagram on second page
-						//
-						if (1)
-						{
-
-							/* Create a chart object. */
-							lxw_chart* chart2 = workbook_add_chart(workbook, LXW_CHART_SCATTER);
-
-							//
-							// Configure the chart for all measurements
-							//
-							for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
-								i < ELC(parms);
-								i++)
-							{
-								char strCategory[64], strValue[64];
-
-								if (false == *parms[i].pEna)
-									continue;
-
-								sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
-								sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
-
-								series = chart_add_series(chart2, strCategory, strValue);
-								chart_series_set_name(series, parms[i].szTitle);
-
-								col++;
-
-							}
-							chartsheet1 = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
-
-							// Insert the chart into the chartsheet.
-							lxw_error lxwerr = chartsheet_set_chart(chartsheet1, chart2);
-							chart_title_set_name(chart2, "Overall full screen view");
-							chartsheet_set_landscape(chartsheet1);
-						}
-
-						//
-						// create one additional chartsheet for each single measurement
-						//
-						for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
-							i < ELC(parms);
-							i++)
-						{
-							char strCategory[64], strValue[64];
-							lxw_chart* chart[ELC(parms)];
-							lxw_chart_series* series[ELC(parms)];
-							lxw_chartsheet* chartsheet[ELC(parms)];
-							//lxw_worksheet* worksheet[ELC(parms)];
-							char sheetnametmp[64];
-
-							if (false == *parms[i].pEna)
-								continue;
-
-							sprintf(sheetnametmp, "Chart%d", col);
-							//		worksheet[i] = workbook_add_worksheet(workbook, nullptr);
-
-									//sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A', 'A', 1 + cntSamples);
-									//sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + col, 'A' + col, 1 + cntSamples);
-							sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
-							sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
-
-							// Create the chartsheet.
-							chartsheet[i] = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
-
-							// Create a chart object.
-
-							chart[i] = workbook_add_chart(workbook, LXW_CHART_SCATTER);
-
-							// Add a data series to the chart.
-					//		chart_add_series(chart, NULL, "=Sheet1!$A$1:$A$6");
-							series[i] = chart_add_series(chart[i], strCategory, strValue);
-							chart_series_set_name(series[i], parms[i].szTitle);
-
-							// Insert the chart into the chartsheet.
-							lxw_error lxwerr = chartsheet_set_chart(chartsheet[i], chart[i]);
-							//printf("%2d: %d\n", i, lxwerr);
-
-							lxwerr = chartsheet_set_header(chartsheet[i], sheetnametmp);
-							chart_title_set_name(chart[i], parms[i].szTitle);
-
-							col++;
-						}
-
-						lxw_error lxwerr = workbook_close(workbook);
-					}
-				}
-
-			} while (0);
+			} while (0);//if (KEY_ENTER == key) do
 		}
+	}
 
-		//RealTimeClock Analyser
+	if (fCreateOvrd)
+	{
+		errno = 0;
+		FILE* fp = fopen(gfCfgStr_File_SaveAs, "w+");
+		fFileExists = (nullptr != fp);
+		swprintf(wcsStatusBar, sizeof(STATUSSTRING) - 1, L"%hs",
+			fFileExists ? "STATUS: Success" : strerror(errno));
+		gStatusStringColor = fFileExists ? EFI_GREEN : EFI_RED;
+		blink = fFileExists ? 0x3C : UINT_MAX & ~3;
+		blink = UINT_MAX & ~3;//kgtest	dont stop STATUS 
 
+		// delete strFileName
+		if (fFileExists)
+			fclose(fp),
+			remove(gfCfgStr_File_SaveAs);
+		//
+		// create the .XLSX file
+		//
+		if (1)
+		{
+#define COL_TBL_START (/* start column --> */'D' - 'A')
+			lxw_workbook* workbook = workbook_new(gfCfgStr_File_SaveAs);
+			lxw_worksheet* worksheet = workbook_add_worksheet(workbook, nullptr);
+			lxw_format* bold = workbook_add_format(workbook);
+			lxw_chart* chart;
+			lxw_chart_series* series;
+			lxw_chartsheet* chartsheet1;
 
+			format_set_bold(bold);
+			format_set_text_wrap(bold);
+			worksheet_set_row(worksheet, 0, 80, bold);
+			format_set_text_wrap(bold);
+			worksheet_set_column(worksheet, COLS("B:B"), 100, nullptr);
+
+			//
+			// write column title
+			//
+			for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
+			{
+				if (false == *parms[i].pEna)
+					continue;
+
+				worksheet_write_string(worksheet, 0, (lxw_col_t)(COL_TBL_START + col), parms[i].szTitle, nullptr);
+				col++;
+			}
+
+			//
+			// write system information 
+			//
+			if (1)
+			{
+				char strtmp[64];
+				sprintf(strtmp, "ACPI OemId         : %s", gstrACPIOemId), worksheet_write_string(worksheet, CELL("B2"), strtmp, bold);
+				sprintf(strtmp, "ACPI OemTableId    : %s", gstrACPIOemTableId), worksheet_write_string(worksheet, CELL("B3"), strtmp, bold);
+				sprintf(strtmp, "ACPI Timer Address : %s", gstrACPIPmTmrBlkAddr), worksheet_write_string(worksheet, CELL("B4"), strtmp, bold);
+				sprintf(strtmp, "ACPI Timer Size    : %s", gACPIPmTmrBlkSize), worksheet_write_string(worksheet, CELL("B5"), strtmp, bold);
+				sprintf(strtmp, "ACPI PCIEBase      : %s", gACPIPCIEBase), worksheet_write_string(worksheet, CELL("B6"), strtmp, bold);
+				sprintf(strtmp, "Vendor CPUID       : %s", gstrCPUID0), worksheet_write_string(worksheet, CELL("B7"), strtmp, bold);
+				sprintf(strtmp, "CPUID Signature    : %s", gstrCPUIDSig), worksheet_write_string(worksheet, CELL("B8"), strtmp, bold);
+				sprintf(strtmp, "Family ID          : %s", gstrCPUIDFam), worksheet_write_string(worksheet, CELL("B9"), strtmp, bold);
+				sprintf(strtmp, "Model  ID          : %s", gstrCPUIDMod), worksheet_write_string(worksheet, CELL("B10"), strtmp, bold);
+				sprintf(strtmp, "Stepping ID        : %s", gstrCPUIDStp), worksheet_write_string(worksheet, CELL("B11"), strtmp, bold);
+				sprintf(strtmp, "CPU Speed          : %s", gstrCPUSpeed), worksheet_write_string(worksheet, CELL("B12"), strtmp, bold);
+			}
+
+			//	
+			// write line numbers, NOTE: for scatter charts x-y coordinates needed , scatter charts must have 'categories' and 'values'  
+			// 
+			for (int j = 0; j < cntSamples; j++)
+			{
+				//if(false == gfAutoRun)
+				//	pThis->TextWindowUpdateProgress();
+				// write numbers		
+				worksheet_write_number(worksheet, j + 1, COL_TBL_START, j, nullptr);
+			}
+
+			for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values'  */; i < ELC(parms); i++)
+			{
+				if (false == *parms[i].pEna)
+					continue;
+
+				for (int j = 0; j < cntSamples; j++)
+				{
+					//if (false == gfAutoRun)
+					//	pThis->TextWindowUpdateProgress();
+					/* Write some data for the chart. */
+					worksheet_write_number(worksheet, j + 1, (lxw_col_t)(COL_TBL_START + col), parms[i].rgDriftSecPerDay[j], nullptr);
+				}
+				col++;
+			}
+
+			//
+			// preview diagram on first page
+			//
+			if (1)
+			{
+
+				/* Create a chart object. */
+				chart = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+				//
+				// Configure the chart for all measurements
+				//
+				for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+					i < ELC(parms);
+					i++)
+				{
+					char strCategory[64], strValue[64], strLabel[64];
+
+					if (false == *parms[i].pEna)
+						continue;
+
+					sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+					sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+					series = chart_add_series(chart, strCategory, strValue);
+					sprintf(strLabel, "%s x %s", parms[i].szTicks, parms[i].szMultiplier);
+					chart_series_set_name(series, strLabel);
+
+					col++;
+
+				}
+				chart_title_set_name(chart, "Overall preview, drift in seconds per day");
+				worksheet_insert_chart(worksheet, CELL("B15"), chart);
+			}
+
+			//
+			// full screen view diagram on second page
+			//
+			if (1)
+			{
+
+				/* Create a chart object. */
+				lxw_chart* chart2 = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+				//
+				// Configure the chart for all measurements
+				//
+				for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+					i < ELC(parms);
+					i++)
+				{
+					char strCategory[64], strValue[64], strLabel[64];
+
+					if (false == *parms[i].pEna)
+						continue;
+
+					sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+					sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+					series = chart_add_series(chart2, strCategory, strValue);
+					sprintf(strLabel, "%s ticks x %s", parms[i].szTicks, parms[i].szMultiplier);
+					chart_series_set_name(series, strLabel);
+
+					col++;
+					//if (false == gfAutoRun)
+					//	pThis->TextWindowUpdateProgress();
+				}
+				chartsheet1 = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+				// Insert the chart into the chartsheet.
+				lxw_error lxwerr = chartsheet_set_chart(chartsheet1, chart2);
+				chart_title_set_name(chart2, "Overall full screen view\nDrift in seconds per day");
+				chartsheet_set_landscape(chartsheet1);
+			}
+
+			//
+			// create one additional chartsheet for each single measurement
+			//
+			for (int i = 0, col = 1/* COL 0 is reserved for line numbers, scatter charts must have 'categories' and 'values' */;
+				i < ELC(parms);
+				i++)
+			{
+				char strLabel[64];
+				char strCategory[64], strValue[64];
+				lxw_chart* chart[ELC(parms)];
+				lxw_chart_series* series[ELC(parms)];
+				lxw_chartsheet* chartsheet[ELC(parms)];
+				char sheetnametmp[64], strTitle[64];
+
+				if (false == *parms[i].pEna)
+					continue;
+
+				sprintf(sheetnametmp, "Chart%d", col);
+				sprintf(strCategory, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START, 'A' + COL_TBL_START, 1 + cntSamples);
+				sprintf(strValue, "=Sheet1!$%c$2:$%c$%d", 'A' + COL_TBL_START + col, 'A' + COL_TBL_START + col, 1 + cntSamples);
+
+				// Create the chartsheet.
+				chartsheet[i] = workbook_add_chartsheet(workbook, nullptr/*sheetnametmp*/);
+
+				// Create a chart object.
+
+				chart[i] = workbook_add_chart(workbook, LXW_CHART_SCATTER);
+
+				// Add a data series to the chart.
+		//		chart_add_series(chart, NULL, "=Sheet1!$A$1:$A$6");
+				series[i] = chart_add_series(chart[i], strCategory, strValue);
+				sprintf(strLabel, "%s ticks x %s", parms[i].szTicks, parms[i].szMultiplier);
+				chart_series_set_name(series[i], strLabel);
+
+				// Insert the chart into the chartsheet.
+				lxw_error lxwerr = chartsheet_set_chart(chartsheet[i], chart[i]);
+				//printf("%2d: %d\n", i, lxwerr);
+
+				lxwerr = chartsheet_set_header(chartsheet[i], sheetnametmp);
+				sprintf(strLabel, "Drift in seconds per day\nSyncronization time of %s ACPI timer ticks\nscaled to 1s by factor %s", parms[i].szTicks, parms[i].szMultiplier);
+				chart_title_set_name(chart[i], strLabel);
+
+				col++;
+				//if (false == gfAutoRun)
+				//	pThis->TextWindowUpdateProgress();
+			}
+
+			lxw_error lxwerr = workbook_close(workbook);
+		}
+	}//if (fCreateOvrd)
+
+	if (0 == strcmp("ENTER", (char*)pParm))					// ENTER?
 		if (nullptr != pSaveAsBox)
 			pSaveAsBox->BgAtt = EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,
 			delete pSaveAsBox;
-	}return 0;
+
+	return 0;
 }
 
-int fnMnuItm_View_HexSym(CTextWindow* pThis, void* pContext, void* pParm)
+int fnMnuItm_View_SysInfo(CTextWindow* pThis, void* pContext, void* pParm)
 {
 	if (0 == strcmp("ENTER", (char*)pParm))				// Enter?
 	{
 		CTextWindow* pRoot = pThis->TextWindowGetRoot();
 
 		pRoot->TextBlockClear();
-		gfHexView ^= true;// toggle debug state
+		//gfHexView ^= true;// toggle debug state
 		pThis->TextClearWindow(pRoot->WinAtt);
+		//
+		// write system configuration
+		// 
+		pRoot->TextPrint({ 2, 4 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI OemId         : %s", gstrACPIOemId);
+		pRoot->TextPrint({ 2, 5 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI OemTableId    : %s", gstrACPIOemTableId);
+		pRoot->TextPrint({ 2, 6 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI Timer Address : %s", gstrACPIPmTmrBlkAddr);
+		pRoot->TextPrint({ 2, 7 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI Timer Size    : %s", gACPIPmTmrBlkSize);
+		pRoot->TextPrint({ 2, 8 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI PCIEBase      : %s", gACPIPCIEBase);
+
+		pRoot->TextPrint({ 2, 10 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Vendor CPUID       : %s", gstrCPUID0);
+		pRoot->TextPrint({ 2, 11 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"CPUID Signature    : %s", gstrCPUIDSig);
+		pRoot->TextPrint({ 2, 12 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Family ID          : %s", gstrCPUIDFam);
+		pRoot->TextPrint({ 2, 13 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Model  ID          : %s", gstrCPUIDMod);
+		pRoot->TextPrint({ 2, 14 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Stepping ID        : %s", gstrCPUIDStp);
+		pRoot->TextPrint({ 2, 15 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "CPU Speed          : %s", gstrCPUSpeed);
+
+		pRoot->TextPrint({ 2, 17 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "target .XLSX       : %s", gfCfgStr_File_SaveAs);
+		pRoot->TextPrint({ 2, 19 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "RefTimerDev        : %s", true == gfCfgRefSyncRTC ? "RTC" : "ACPI");
+		pRoot->TextPrint({ 2, 19 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "RefSyncTime        : %ds", gnCfgRefSyncTime);
 	}
 	return 0;
 }
@@ -699,11 +771,6 @@ const wchar_t* wcsDEBURRING[2][1] =
 //	return nRet;
 //}
 //
-//int fnMnuItm_Config_PITDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect2 ^= 1;  		pMenu->rgwcsMenuItem[1/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1]); nRet = 1; }return nRet; }
-//int fnMnuItm_Config_PITDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2]); nRet = 1; }return nRet; }
-//int fnMnuItm_Config_PITDelaySelect4(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect4 ^= 1;		pMenu->rgwcsMenuItem[3/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3]); nRet = 1; }return nRet; }
-//int fnMnuItm_Config_PITDelaySelect5(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_PITDelaySelect5 ^= 1;		pMenu->rgwcsMenuItem[4/* index 3 */] = (wchar_t*)(wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4]); nRet = 1; }return nRet; }
-
 int fnMnuItm_Config_ACPIDelaySelect1(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect1 ^= 1;		pMenu->rgwcsMenuItem[0/* menu item 0 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0]); nRet = 1; }return nRet; }
 int fnMnuItm_Config_ACPIDelaySelect2(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect2 ^= 1;		pMenu->rgwcsMenuItem[1/* menu item 1 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1]); nRet = 1; }return nRet; }
 int fnMnuItm_Config_ACPIDelaySelect3(CTextWindow* pThis, void* pContext, void* pParm) { CTextWindow* pRoot = pThis->TextWindowGetRoot(); char* pParmStr = (char*)pParm; menu_t* pMenu = (menu_t*)pContext; int nRet = 0; if (0 == strcmp("ENTER", pParmStr))pThis->TextClearWindow(pRoot->WinAtt); else { gfCfgMngMnuItm_Config_ACPIDelaySelect3 ^= 1;		pMenu->rgwcsMenuItem[2/* menu item 2 */] = (wchar_t*)(wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2]); nRet = 1; }return nRet; }
@@ -853,13 +920,13 @@ int fnMnuItm_About_1(CTextWindow* pThis, void* pContext, void* pParm)
 
 	if (false == gfKbdDbg)
 	{
-		char* pLineKiller = new char[pThis->ScrDim.X - 4];
+		char* pLineKill = new char[pThis->ScrDim.X - 4];
 
-		memset(pLineKiller, '\x20', pThis->ScrDim.X - 4);
-		pLineKiller[pThis->ScrDim.X - 4] = '\0';
+		memset(pLineKill, '\x20', pThis->ScrDim.X - 4);
+		pLineKill[pThis->ScrDim.X - 4] = '\0';
 
 		pThis->GotoXY({ 2,pThis->ScrDim.Y - 3 });
-		printf("%s", pLineKiller);
+		printf("%s", pLineKill);
 	}
 
 	pThis->TextClearWindow(pRoot->WinAtt);
@@ -889,7 +956,6 @@ int main(int argc, char** argv)
 	gImageHandle = (void*)(argv[-2]);					//ImageHandle is passed in argv[-2]
 	TEXT_KEY key = NO_KEY;
 
-	DPRINTF(("hello\n"));
 	atexit(resetconsole);
 	EFI_ACPI_6_2_FIXED_ACPI_DESCRIPTION_TABLE* pFACP = (EFI_ACPI_6_2_FIXED_ACPI_DESCRIPTION_TABLE*)malloc(32768 * 8);
 	uint32_t DataSize2;
@@ -905,31 +971,104 @@ int main(int argc, char** argv)
 	}CDE_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE;
 	CDE_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE* pMCFG = (CDE_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE*)malloc(32768 * 8);
 #pragma pack()
+	//
+	// process command line
+	// 
+	for (int arg = 1; arg < argc; arg++)
+	{
+		if (
+			0 == _strnicmp(argv[arg], "/?", strlen("/?"))
+			|| 0 == _strnicmp(argv[arg], "/h", strlen("/h"))
+			|| 0 == _strnicmp(argv[arg], "-?", strlen("-?"))
+			|| 0 == _strnicmp(argv[arg], "-h", strlen("-h"))
+			)
+		{
+			printf("TSCSYNC -- TimeStampCounter (TSC) syncronizer\n");
+			printf("    /AUTORUN\n");
+			printf("    /REFSYNC:RTC/ACPI -- choose RTC/ACPI reference\n");
+			printf("    /OUT:file.xlsx    -- assign filname\n");
+			printf("    /SYNCTIME:3       -- choose 3s sync time\n");
+			exit(0);
+		}
+		if (0 == _strnicmp(argv[arg], "/out", strlen("/out")))
+		{
+			char strtmp[8];
+			int t;
+
+			t = sscanf(argv[arg], "%4s:%s", &strtmp, &gfCfgStr_File_SaveAs);
+
+			if (t != 2)
+			{
+				fprintf(stderr, "Parameter failure \"%s\", consider format: \"/out:filename.xlsx\"", argv[arg]);
+				exit(1);
+			}
+		}
+
+		if (0 == _stricmp(argv[arg], "/autorun"))
+			gfAutoRun = true,
+			gfRunConfig = true;
+
+		if (0 == _strnicmp(argv[arg], "/refsync", strlen("/refsync")))
+		{
+			char strtmp[8], strtmp2[16];
+			int t;
+			bool fErr = false;
+
+			t = sscanf(argv[arg], "%8s:%s", &strtmp, &strtmp2);
+
+			if (t != 2)
+				fErr = true;
+
+			if (0 == _stricmp(strtmp2, "RTC"))
+				gfCfgRefSyncRTC = true;
+			else if (0 == _stricmp(strtmp2, "ACPI"))
+				gfCfgRefSyncRTC = false;
+			else
+				fErr = true;
+
+			if (true == fErr)
+			{
+				fprintf(stderr, "Parameter failure \"%s\", consider format: \"/refsync:ACPI\" or \"/refsync:RTC\"", argv[arg]);
+				exit(1);
+			}
+		}
+
+		if (0 == _strnicmp(argv[arg], "/synctime", strlen("/synctime")))
+		{
+			char strtmp[16];
+			int t;
+
+			t = sscanf(argv[arg], "%9s:%d", &strtmp, &gnCfgRefSyncTime);
+
+			if (t != 2 || 1 > gnCfgRefSyncTime)
+			{
+				fprintf(stderr, "Parameter failure \"%s\", consider format: \"/synctime:1\"", argv[arg]);
+				exit(1);
+			}
+		}
+	}
 
 	//	_set_invalid_parameter_handler(invalid_parameter_handler);
 
 	DataSize2 = GetSystemFirmwareTable('ACPI', 'PCAF', pFACP, 32768 * 8);
-	//pFACP = (void*)pFACP;
 
-	printf("Signature: %.4s, OemID: %.6s, OemTblID %.8s\n",
-		(char*)&pFACP->Header.Signature,
-		&pFACP->Header.OemId,
-		(char*)&pFACP->Header.OemTableId
-	);
+	sprintf(gstrACPISignature, "%.4s", (char*)&pFACP->Header.Signature);
+	sprintf(gstrACPIOemId, "%.6s", (char*)&pFACP->Header.OemId);
+	sprintf(gstrACPIOemTableId, "%.8s", (char*)&pFACP->Header.OemTableId);
 
-	printf("PmTmrBlk: %04X, %sBit\n",
-		pFACP->PmTmrBlk,
-		(0 != (pFACP->Flags & (1 << 8))) ? "32" : "24"
-	);
-	
+	sprintf(gstrACPIPmTmrBlkAddr, "%04X", pFACP->PmTmrBlk);
+	sprintf(gACPIPmTmrBlkSize, "%sBit", (0 != (pFACP->Flags & (1 << 8))) ? "32" : "24");
+
 	gPmTmrBlkAddr = static_cast<uint16_t> (pFACP->PmTmrBlk);				// save ACPI timer base adress
 
-#define NUM 1000000LL
+#define NUM 100000LL
 	if (1)
 	{
 		static int32_t buffer[NUM], diff;
 		uint64_t min = (uint64_t)~0, max = 0, sum = 0;
-
+		
+		_disable();
+		
 		for (int i = 0; i < NUM; i++)
 			buffer[i] = _inpd(gPmTmrBlkAddr);
 		
@@ -948,7 +1087,7 @@ int main(int argc, char** argv)
 		printf("ACPI Timer characteristic %8lld consecutive reads: min %3lld, max %3lld, av %3lld\n", NUM, min, max, sum / NUM);
 	}
 #undef NUM
-#define NUM 1000LL
+#define NUM 100000LL
 
 	if (1)
 	{
@@ -958,6 +1097,8 @@ int main(int argc, char** argv)
 		uint64_t min = (uint64_t)~0, max = 0, sum = 0;
 		
 #define TIMER 2
+
+		_disable();
 
 		for (int i = 0; i < NUM; i++)
 		{
@@ -986,7 +1127,52 @@ int main(int argc, char** argv)
 	//exit(EXIT_SUCCESS);
 
 	DataSize2 = GetSystemFirmwareTable('ACPI', 'GFCM', pMCFG, 32768 * 8);
-	printf("DataSize2 %d\nPCIEBase %p\nsizeof(CDE_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE) %zd\n", DataSize2, (void*)pMCFG->BaseAddress, sizeof(CDE_ACPI_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE));
+	sprintf(gACPIPCIEBase, "%p", pMCFG->BaseAddress);
+
+	//
+	// CPU ID
+	//
+	if (1)
+	{
+		int cpuInfo[4] = { 0,0,0,0 };
+		unsigned char* puc;
+		__cpuid(cpuInfo, 0);
+
+		//for (int i = 0, j; i < 4; i++)
+		//{
+		//	printf("%08X: ", cpuInfo[i]);
+
+		//	for (j = 0, puc = (unsigned char*)&cpuInfo[i]; j < sizeof(cpuInfo[0]); j++)
+		//		printf("%c", isprint(puc[j]) ? puc[j] : '.');
+		//	puc = (unsigned char*)&cpuInfo[1];
+		//	printf("\n");
+		//}
+
+		//// patch/cut Intel string
+		//if ('0' == puc[4])
+		//	puc[4] = puc[4] = puc[4] = puc[4] = '\0';
+		//sprintf(gstrCPUID0, "%c%c%c%c%c%c%c%c%c%c%c%c",
+		//	puc[0],
+		//	puc[1],
+		//	puc[2],
+		//	puc[3],
+		//	puc[8],
+		//	puc[9],
+		//	puc[10],
+		//	puc[11],
+		//	puc[4],
+		//	puc[5],
+		//	puc[6],
+		//	puc[7]
+		//);
+
+		__cpuid(cpuInfo, 1);
+		sprintf(gstrCPUIDSig, "%X", cpuInfo[0]);
+		sprintf(gstrCPUIDFam, "%X", 0x0F != (0x0F & cpuInfo[0] >> 8) ? (0x0F & cpuInfo[0] >> 8) : (0x0F & cpuInfo[0] >> 8) + (0xFF & cpuInfo[0] >> 20));
+		sprintf(gstrCPUIDMod, "%X", ((6 == (0x0F & cpuInfo[0] >> 8)) || (0x0F == (0x0F & cpuInfo[0] >> 8))) ? ((0x1F & cpuInfo[0] >> 15) << 4) + (0x0F & cpuInfo[0] >> 4) : 0x0F & cpuInfo[0] >> 4);
+		sprintf(gstrCPUIDStp, "%X", 0x0F & cpuInfo[0]);
+
+	}
 
 	//
 	//	determine processor speed within 250ms second
@@ -1005,7 +1191,7 @@ int main(int argc, char** argv)
 
 		sprintf(buffer, "%lld", 4 * (endTSC - startTSC));
 
-		printf("--> %c.%c%cGHz\n", buffer[0], buffer[1], buffer[2]);
+		sprintf(gstrCPUSpeed,"%c.%c%cGHz\n", buffer[0], buffer[1], buffer[2]);
 	}
 	//
 	// Initialize PIT timer channel 2
@@ -1025,8 +1211,24 @@ int main(int argc, char** argv)
 
 		if (nullptr != fp)
 		{
-			printf("reading cfg file\n");
-			int tok = fscanf(fp, "gfCfgMngMnuItm_View_Clock = %hhu\ngfCfgMngMnuItm_View_Calendar = %hhu\ngfCfgMngMnuItm_Config_PicApicSelect = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect1   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect2   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect3   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect4   = %hhu\ngfCfgMngMnuItm_Config_PITDelaySelect5   = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect1  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect2  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect3  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect4  = %hhu\ngfCfgMngMnuItm_Config_ACPIDelaySelect5  = %hhu\ngfCfgMngMnuItm_Config_DEBURRING  = %hhu\ngidxCfgMngMnuItm_Config_NumSamples = %d",
+			//printf("reading cfg file\n");
+			int tok = fscanf(fp, 
+				"gfCfgMngMnuItm_View_Clock = %hhu\n\
+				gfCfgMngMnuItm_View_Calendar = %hhu\n\
+				gfCfgMngMnuItm_Config_PicApicSelect = %hhu\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect1   = %hhu\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect2   = %hhu\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect3   = %hhu\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect4   = %hhu\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect5   = %hhu\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect1  = %hhu\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect2  = %hhu\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect3  = %hhu\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect4  = %hhu\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect5  = %hhu\n\
+				gfCfgMngMnuItm_Config_DEBURRING  = %hhu\n\
+				gidxCfgMngMnuItm_Config_NumSamples = %d\n\
+				gfCfgStr_File_SaveAs = %s",
 
 				(char*)&gfCfgMngMnuItm_View_Clock,
 				(char*)&gfCfgMngMnuItm_View_Calendar,
@@ -1044,52 +1246,58 @@ int main(int argc, char** argv)
 				(char*)&gfCfgMngMnuItm_Config_ACPIDelaySelect5,
 				(char*)&gfCfgMngMnuItm_Config_DEBURRING,
 
-				(int*)&gidxCfgMngMnuItm_Config_NumSamples
+				(int*)&gidxCfgMngMnuItm_Config_NumSamples,
+				&gfCfgStr_File_SaveAs[0]
 			);
 
 		}
 	}
 
 	//
-	// wait 10sec by RTC UIP flag
+	// wait reference sync
 	//
 	if (1)
 	{
-#define SECONDS 1
-		uint64_t qwTSCEnd, qwTSCStart;
+		int SECONDS = gnCfgRefSyncTime;
+		int64_t qwTSCEnd = 0 , qwTSCStart = 0;
 		int sec = 1 + SECONDS;
 
 		//
 		// wait UP (update ended) interrupt flag to start on time https://www.nxp.com/docs/en/data-sheet/MC146818.pdf#page=16
 		// 
-		printf("%d seconds for ultra precise TSC calibration ... \n", SECONDS);
+		printf("%d seconds for ultra precise TSC calibration on %s... \n", SECONDS, true == gfCfgRefSyncRTC ? "RTC" : "ACPI Timer");
+		qwTSCStart = 0;
 
+		_outp(0x70, 0x0A);										// RTC Register A
+
+		while (0 == (0x80 & _inp(0x71)))
+			;
+		while (0 != (0x80 & _inp(0x71)))
+			;
+		qwTSCStart = __rdtsc();									// get start TSC at falling edge
+
+		_disable();
 		for (int i = 0; i < 1; i++)
 		{
+			if (gfCfgRefSyncRTC) {
+				sec = 1 + SECONDS;
 
-			sec = 1 + SECONDS;
-			_disable();
-
-			while (_outp(0x70, 0x0C), 0 != (0x10 & _inp(0x71)));	// clear currently set UP
-
-			while (0 == (0x10 & _inp(0x71)));						// wait until new second starts (1 == UP)
-
-			qwTSCStart = __rdtsc();									// get start TSC
-
-			while (--sec)
-				while (0 == (0x10 & _inp(0x71)));					// wait until UP flag set again
-
-			qwTSCEnd = __rdtsc();									// get end TSC
-
-
-			printf("diff %lld, qwTSCEnd %lld, qwTSCStart %lld\n", (qwTSCEnd - qwTSCStart) / SECONDS, qwTSCEnd, qwTSCStart);
-
+				for (int i = 0; i < SECONDS; i++)
+				{
+					while (0 == (0x80 & _inp(0x71)))
+						;
+					while (0 != (0x80 & _inp(0x71)))					// wait for second falling edge
+						;
+				}
+				qwTSCEnd = __rdtsc();									// get end TSC
+			} else {//if (gfCfgRefSyncRTC) {
+				qwTSCEnd += AcpiClkWait(SECONDS * 3579543);				// this function returns the diff
+				qwTSCStart = 0;											// clear start
+			}//if (gfCfgRefSyncRTC) {
 		}
-		gTSCPerSecondReference = (qwTSCEnd - qwTSCStart) / SECONDS;
+		gTSCPerSecondReference = (int64_t)((qwTSCEnd - qwTSCStart) / SECONDS);
+		printf("%s sync base: diff %lld\n", (qwTSCEnd - qwTSCStart) / SECONDS, true == gfCfgRefSyncRTC ? "RTC" : "ACPI");
 	}
-
-	//exit(0);
-	//printf("sizeof(bool) %zd\n", sizeof(bool));
 
 	do
 	{
@@ -1099,20 +1307,12 @@ int main(int argc, char** argv)
 
 		menu_t menu[] =
 		{
-			{{04,0},	L" File ",		nullptr,{43,6/* # menuitems + 2 */},	/*{false},*/ {	L"Save series of measurements as .XLSX...",
+			{{ 1,0},	L" FILE ",		nullptr,{43,6/* # menuitems + 2 */},	/*{false},*/ {	L"Save series of measurements as .XLSX...",
 																								wcsSeparator17,
 																								L"Exit...                                ",
 																								L"Save and Exit...                       "},{&fnMnuItm_File_SaveAs, nullptr, &fnMnuItm_File_Exit,&fnMnuItm_File_SaveExit}},
-			{{12,0},	L" View ",		nullptr,{20,5/* # menuitems + 2 */},	/*{false},*/ {L"Hex/Sym view    ",L"Clock           ",L"Calendar        " },{&fnMnuItm_View_HexSym,&fnMnuItm_View_Clock,&fnMnuItm_View_Calendar}},
-			{{20,0},	L" Help ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false, false},*/ {L"About           ",L"KEYBOARD DEBUG  "},{&fnMnuItm_About_0, &fnMnuItm_About_1 }},
-			{{28,0},	L" CONFIG ",	nullptr,{55,11/* # menuitems + 2 */},	/*{false, false, true, false},*/
+			{{ 8,0},	L" CONF ",	nullptr,{55,11	/* # menuitems + 2 */},	/*{false, false, true, false},*/
 				{
-					///*index 3 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect1][0],	/* selected by default menu strings */
-					///*index 4 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect2][1],
-					///*index 5 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect3][2],
-					///*index 6 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect4][3],
-					///*index 7 */ wcsTimerDelayPicStrings[gfCfgMngMnuItm_Config_PITDelaySelect5][4],
-					///*index 2 */ wcsSeparator17,
 					/*index 3 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect1][0],	/* selected by default menu strings */
 					/*index 4 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect2][1],
 					/*index 5 */ wcsTimerDelayAcpiStrings[gfCfgMngMnuItm_Config_ACPIDelaySelect3][2],
@@ -1124,24 +1324,20 @@ int main(int argc, char** argv)
 					/*index11 */ wcsDEBURRING[gfCfgMngMnuItm_Config_DEBURRING][0],
 				},
 				{
-					///*index 0 */ &fnMnuItm_Config_PITDelaySelect1,
-					///*index 1 */ &fnMnuItm_Config_PITDelaySelect2,
-					///*index 1 */ &fnMnuItm_Config_PITDelaySelect3,
-					///*index 1 */ &fnMnuItm_Config_PITDelaySelect4,
-					///*index 1 */ &fnMnuItm_Config_PITDelaySelect5,
-					///*index 2 */ nullptr/* nullptr identifies SEPARATOR */,
 					/*index 3 */ &fnMnuItm_Config_ACPIDelaySelect1,
 					/*index 4 */ &fnMnuItm_Config_ACPIDelaySelect2,
 					/*index 5 */ &fnMnuItm_Config_ACPIDelaySelect3,
 					/*index 6 */ &fnMnuItm_Config_ACPIDelaySelect4,
 					/*index 7 */ &fnMnuItm_Config_ACPIDelaySelect5,
 					/*index 8 */ nullptr/* nullptr identifies SEPARATOR */,
-					/*index 9 */& fnMnuItm_NumSamples,
+					/*index 9 */&fnMnuItm_NumSamples,
 					/*index10 */ nullptr/* nullptr identifies SEPARATOR */,
-					/*index11 */& fnMnuItm_Config_DEBURRING,
+					/*index11 */&fnMnuItm_Config_DEBURRING,
 					}
 				},
-				{ {38,0},	L"   RUN   ",		nullptr,{20,3/* # menuitems + 2 */},	/*{false, false},*/ {L"Run CONFIG      "},{&fnMnuItm_RunConfig_0}},
+			{{15,0},	L" RUN  ",		nullptr,{20,3/* # menuitems + 2 */},	/*{false, false},*/ {L"Run CONFIG      "},{&fnMnuItm_RunConfig_0}},
+			{{22,0},	L" VIEW ",		nullptr,{23,5/* # menuitems + 2 */},	/*{false},*/ {L"System Information ",L"Clock              ",L"Calendar           " },{&fnMnuItm_View_SysInfo,&fnMnuItm_View_Clock,&fnMnuItm_View_Calendar}},
+			{{29,0},	L" HELP ",		nullptr,{20,4/* # menuitems + 2 */},	/*{false, false},*/ {L"About           ",L"KEYBOARD DEBUG  "},{&fnMnuItm_About_0, &fnMnuItm_About_1 }},
 		};
 
 		CTextWindow FullScreen(nullptr/* no parent pointer - this is the main window !!! */, DFLT_SCREEN_ATTRIBS);
@@ -1176,7 +1372,7 @@ int main(int argc, char** argv)
 			FullScreen.TextPrint(menu[i].RelPos, menu[i].wcsMenuName);
 
 		//
-		// draw status/help line
+		// draw status/help line, initially
 		//
 		if (1)
 		{
@@ -1184,9 +1380,42 @@ int main(int argc, char** argv)
 				wcsARROW_UP[2] = { ARROW_UP ,'\0' },
 				wcsARROW_RIGHT[2] = { ARROW_RIGHT ,'\0' },
 				wcsARROW_DOWN[2] = { ARROW_DOWN ,'\0' };
-			//FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu ENTER:Select ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
-			  FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu \x25C4\x2518:Select SPACE:Check ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+			char* pLineKill = new char[FullScreen.ScrDim.X];
+
+			memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+				pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+			if (false == gfStatusLineVisible)
+			{
+				gfStatusLineVisible = true;
+				FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, pLineKill);
+				FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu \x25C4\x2518:Select SPACE:Check ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+				
+				if(gfAutoRun)
+					FullScreen.TextPrint({ FullScreen.ScrDim.X / 2 - (int32_t)sizeof(" A U T O   R U N   M O D E ") / 2, FullScreen.ScrDim.Y - 2 }, EFI_BACKGROUND_RED | EFI_WHITE, " A U T O   R U N   M O D E ");
+
+			}
 		}
+
+		//
+		// write system configuration
+		// 
+		FullScreen.TextPrint({ 2, 4 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI OemId         : %s", gstrACPIOemId);
+		FullScreen.TextPrint({ 2, 5 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI OemTableId    : %s", gstrACPIOemTableId);
+		FullScreen.TextPrint({ 2, 6 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI Timer Address : %s", gstrACPIPmTmrBlkAddr);
+		FullScreen.TextPrint({ 2, 7 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI Timer Size    : %s", gACPIPmTmrBlkSize);
+		FullScreen.TextPrint({ 2, 8 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "ACPI PCIEBase      : %s", gACPIPCIEBase);
+
+		FullScreen.TextPrint({ 2, 10 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Vendor CPUID       : %s", gstrCPUID0);
+		FullScreen.TextPrint({ 2, 11 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"CPUID Signature    : %s", gstrCPUIDSig);
+		FullScreen.TextPrint({ 2, 12 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Family ID          : %s", gstrCPUIDFam);
+		FullScreen.TextPrint({ 2, 13 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK,"Model  ID          : %s", gstrCPUIDMod);
+		FullScreen.TextPrint({ 2, 14 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "Stepping ID        : %s", gstrCPUIDStp);
+		FullScreen.TextPrint({ 2, 15 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "CPU Speed          : %s", gstrCPUSpeed);
+
+		FullScreen.TextPrint({ 2, 17 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "target .XLSX       : %s", gfCfgStr_File_SaveAs);
+		FullScreen.TextPrint({ 2, 18 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "RefTimerDev        : %s", true == gfCfgRefSyncRTC ? "RTC" : "ACPI");
+		FullScreen.TextPrint({ 2, 19 }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "RefSyncTime        : %ds", gnCfgRefSyncTime);
 
 		//
 		// the master loop
@@ -1206,15 +1435,24 @@ int main(int argc, char** argv)
 			for (; false == gfExit;)
 			{
 
-				//clock_t endclk = CLOCKS_PER_SEC / 8 + clock();
-				//EFI_KEY_DATA KeyData = FullScreen.ReadKeyStrokeEx();
-
 				FullScreen.TextWindowUpdateProgress();
 
 				//
 				// write STATUS BAR, if a status message exist in wcsStatusBar
 				//
 				if (0 != blink) {
+					
+					char* pLineKill = new char[FullScreen.ScrDim.X];
+
+					memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+						pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+					if (true == gfStatusLineVisible) 
+					{
+						gfStatusLineVisible = false;
+						FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, pLineKill);
+						FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu");
+					}
 
 					if (false == fStatusBarRightAdjusted)	// right adjust whatever is in the wcsStatusBar
 					{
@@ -1241,9 +1479,31 @@ int main(int argc, char** argv)
 					fStatusBarRightAdjusted = false;
 					wmemset(wcsStatusBar, L'\x20', ELC(wcsStatusBar));																		// clear status bar message
 					wcsStatusBar[-1 + ELC(wcsStatusBar)] = L'\0';																			// terminate string
-					FullScreen.TextPrint({ FullScreen.ScrDim.X - 1 - (int32_t)sizeof(STATUSSTRING), FullScreen.ScrDim.Y - 1 },
+					FullScreen.TextPrint({ FullScreen.ScrDim.X - (int32_t)sizeof(STATUSSTRING), FullScreen.ScrDim.Y - 1 },
 						EFI_BACKGROUND_BLUE | EFI_WHITE, wcsStatusBar);																		// write cleared status bar message
 					wcscpy(wcsStatusBar, L"");																								// cut status bar message to 0
+
+					//
+					// draw status/help line, initially
+					//
+					if (1)
+					{
+						wchar_t wcsARROW_LEFT[2] = { ARROW_LEFT ,'\0' },
+							wcsARROW_UP[2] = { ARROW_UP ,'\0' },
+							wcsARROW_RIGHT[2] = { ARROW_RIGHT ,'\0' },
+							wcsARROW_DOWN[2] = { ARROW_DOWN ,'\0' };
+						char* pLineKill = new char[FullScreen.ScrDim.X];
+
+						memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+							pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+						if (false == gfStatusLineVisible)
+						{
+							gfStatusLineVisible = true;
+							FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, pLineKill);
+							FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu \x25C4\x2518:Select SPACE:Check ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+						}
+					}
 				}
 
 				key = FullScreen.TextGetKey();
@@ -1317,7 +1577,6 @@ int main(int argc, char** argv)
 						menu[idxMenu].pTextWindow->TextBlockDraw({ 2, 1 }, EFI_BACKGROUND_CYAN | EFI_YELLOW);
 						idxMnuItm = 0;
 						menu[idxMenu].pTextWindow->TextPrint({ 2,1 }, EFI_BACKGROUND_MAGENTA | EFI_YELLOW, menu[idxMenu].rgwcsMenuItem[0]);
-						//__debugbreak();
 
 						state = MENU_IS_OPEN;
 						key = NO_KEY;
@@ -1452,63 +1711,158 @@ int main(int argc, char** argv)
 					
 					if (gfRunConfig)
 					{
-						switch (gidxCfgMngMnuItm_Config_NumSamples) 
+						uint64_t seconds = 0;
+						switch (gidxCfgMngMnuItm_Config_NumSamples)
 						{
-							case 0: cntSamples = 10; break;
-							case 1: cntSamples = 50; break;
-							case 2: cntSamples = 250; break;
-							case 3: cntSamples = 1250; break;
+						case 0: cntSamples = 10; break;
+						case 1: cntSamples = 50; break;
+						case 2: cntSamples = 250; break;
+						case 3: cntSamples = 1250; break;
 						}
 
-						for (int i = 0, l = 0; i < ELC(parms); i++)
+						//
+						// clear main window if /AUTORUN, clear main window since refresh for text block is not yet fully supported (for multiple text blocks, only for one...)
+						//
+						if (1) {
+							wchar_t wcstmp[16];
+							swprintf(wcstmp, INT_MAX, L"%%.%ds", FullScreen.WinDim.X - 2);
+
+							for (int i = 2; i < FullScreen.WinDim.Y - 2; i++)
+								FullScreen.TextPrint({ 1, i + FullScreen.WinPos.Y }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, wcstmp, FullScreen.pwcsWinClrLine);
+						}
+
+						char* pLineKill = new char[FullScreen.ScrDim.X];
+
+						memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+							pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+						//
+						// approximate over all measurement time
+						//
+						if (1)
 						{
-							char strbuftmp[128];
-							if (false == *parms[i].pEna)
-								continue;
-							sprintf(strbuftmp,"running %d x \"%s\" ... ", cntSamples, parms[i].szTitle);
-							FullScreen.TextBlockDraw({ 5,5 + l }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "%s", strbuftmp);
-							
-							parms[i].dblDiffTSCAverage = 0;
-							
-							//
-							// do the measurement, calculate the average
-							//
-							if (1)
+							for (int i = 0, l = 0; i < ELC(parms); i++)
 							{
-								for (int j = 0; j < cntSamples; j++)
-								{
-									parms[i].rgDiffTSC[j] = parms[i].pfnDelay(parms[i].delay);
-									parms[i].dblDiffTSCAverage += parms[i].rgDiffTSC[j];
-								}
-
-								parms[i].dblDiffTSCAverage /= cntSamples;
-								parms[i].dblDiffTSCAverageScaled2EntireDay = (double)((parms[i].dblDiffTSCAverage * parms[i].dwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
+								if (false == *parms[i].pEna)
+									continue;
+								seconds += (parms[i].delay * cntSamples) / 3579543;
 							}
-							//
-							// scale each sample to entire day (86400 seconds), do DEBURRING, if selected -- remove glitches 100 times outside average
-							//
-							if (1) {
-								for (int j = 0; j < cntSamples; j++)
-								{
-									double dblTSC = parms[i].rgDiffTSC[j];
-									double dblScaled2EntireDay = (double)((dblTSC * parms[i].dwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
+							FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_RED | EFI_WHITE, pLineKill);
+						}
 
-									if (true == gfCfgMngMnuItm_Config_DEBURRING)
+						if (1)
+						{
+							clock_t endsec = seconds + clock() / CLOCKS_PER_SEC;
+							bool fStop = false;
+
+							for (int i = 0, l = 0; i < ELC(parms); i++)
+							{
+								char strbuftmp[128];
+								if (false == *parms[i].pEna)
+									continue;
+								sprintf(strbuftmp, "running %d x \"%s\" ... ", cntSamples, parms[i].szTitle);
+								FullScreen.TextBlockDraw({ 5,5 + 3 * l }, EFI_BACKGROUND_LIGHTGRAY | EFI_BLACK, "%s", strbuftmp);
+
+								parms[i].dblDiffTSCAverage = 0;
+
+								//
+								// do the measurement, calculate the average
+								//
+								if (1)
+								{
+									for (int j = 0; j < cntSamples; j++)
 									{
-										if (dblScaled2EntireDay > 5 * parms[i].dblDiffTSCAverageScaled2EntireDay)
-											dblScaled2EntireDay = 0.0;// parms[i].dblDiffTSCAverageScaled2EntireDay;
+										parms[i].rgDiffTSC[j] = parms[i].pfnDelay(parms[i].delay);
+
+										parms[i].dblDiffTSCAverage += parms[i].rgDiffTSC[j];
+										FullScreen.TextWindowUpdateProgress();
+
+										if (false == fStop)
+										{
+											uint64_t h, m, s, tmp;
+
+											seconds = clock() / CLOCKS_PER_SEC;
+
+											h = (endsec - seconds) / 3600;
+											tmp = (endsec - seconds) % 3600;
+											m = tmp / 60;
+											s = tmp % 60;
+
+											
+											FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_RED | EFI_WHITE, "ATTENTION: Measurement finished in %02lld:%02lld min", m, s);
+											if (0 == m && 0 == s)
+												fStop = true;
+
+										}
 									}
 
-									parms[i].rgDriftSecPerDay[j] = (double)dblScaled2EntireDay;
+									parms[i].dblDiffTSCAverage /= cntSamples;
+									parms[i].dblDiffTSCAverageScaled2EntireDay = (double)((parms[i].dblDiffTSCAverage * parms[i].qwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
 								}
-							}
 
-							FullScreen.TextBlockDraw({ 5 + (int)strlen(strbuftmp),5 + l }, EFI_BACKGROUND_LIGHTGRAY | EFI_WHITE, "FINISHED");
-							l++;
+								//
+								// scale each sample to entire day (86400 seconds), do DEBURRING, if selected -- remove glitches 100 times outside average
+								//
+								if (1) {
+									for (int j = 0; j < cntSamples; j++)
+									{
+										double dblTSC = parms[i].rgDiffTSC[j];
+										double dblScaled2EntireDay = (double)((dblTSC * parms[i].qwMultiplierToOneSecond - gTSCPerSecondReference) * 86400) / (double)gTSCPerSecondReference;
+
+										if (true == gfCfgMngMnuItm_Config_DEBURRING)
+										{
+											if (dblScaled2EntireDay > 5 * parms[i].dblDiffTSCAverageScaled2EntireDay)
+												dblScaled2EntireDay = 0.0;// parms[i].dblDiffTSCAverageScaled2EntireDay;
+										}
+
+										parms[i].rgDriftSecPerDay[j] = (double)dblScaled2EntireDay;
+									}
+								}
+
+								FullScreen.TextBlockDraw({ 5 + (int)strlen(strbuftmp),5 + 3 * l }, EFI_BACKGROUND_LIGHTGRAY | EFI_WHITE, "FINISHED");
+								l++;
+							}//for (int i = 0, l = 0; i < ELC(parms); i++)
+						}
+
+						if (1)
+						{
+							wchar_t wcsARROW_LEFT[2] = { ARROW_LEFT ,'\0' },
+								wcsARROW_UP[2] = { ARROW_UP ,'\0' },
+								wcsARROW_RIGHT[2] = { ARROW_RIGHT ,'\0' },
+								wcsARROW_DOWN[2] = { ARROW_DOWN ,'\0' };
+							char* pLineKill = new char[FullScreen.ScrDim.X];
+
+							memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+								pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+							//if (false == gfStatusLineVisible)
+							//{
+							//	gfStatusLineVisible = true;
+								FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, pLineKill);
+								FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_BLUE | EFI_WHITE, L"F10:Menu \x25C4\x2518:Select SPACE:Check ESC:Return %s%s%s%s:Navigate", wcsARROW_LEFT, wcsARROW_RIGHT, wcsARROW_UP, wcsARROW_DOWN);
+							//}
 						}
 
 						gfRunConfig = false;
+						
+						if (true == gfAutoRun) 
+						{
+							char* pLineKill = new char[FullScreen.ScrDim.X];
+							menu[idxMenu].pTextWindow = new CTextWindow(&FullScreen, {0,0}, {1,0}, EFI_BACKGROUND_CYAN | EFI_YELLOW);		//zero position, zero dimension (0,0 doesn't work!)
+
+							memset(pLineKill, '\x20', FullScreen.ScrDim.X),
+								pLineKill[FullScreen.ScrDim.X - 1] = '\0';
+
+							FullScreen.TextPrint({ 0, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_RED | EFI_WHITE, pLineKill);
+							FullScreen.TextPrint({ 1, FullScreen.ScrDim.Y - 1 }, EFI_BACKGROUND_RED | EFI_WHITE, "ATTENTION: Progress indicator stopped during I/O");
+
+							(*menu[idxMenu].rgfnMnuItm[idxMnuItm])(menu[idxMenu].pTextWindow, &menu[idxMenu]/*nullptr*/, (void*)"AUTORUN");
+							
+							gfExit = true;
+							break;
+						}
 					}
+
 					break;
 				default:break;
 				}
@@ -1532,7 +1886,23 @@ int main(int argc, char** argv)
 
 		if (nullptr != fp)
 		{
-			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\ngfCfgMngMnuItm_View_Calendar = %hhd\ngfCfgMngMnuItm_Config_PicApicSelect = %hhd\ngfCfgMngMnuItm_Config_PITDelaySelect1  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect2  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect3  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect4  = % hhd\ngfCfgMngMnuItm_Config_PITDelaySelect5  = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect1 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect2 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect3 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect4 = % hhd\ngfCfgMngMnuItm_Config_ACPIDelaySelect5 = % hhd\ngfCfgMngMnuItm_Config_DEBURRING = % hhd\ngidxCfgMngMnuItm_Config_NumSamples = %d\n",
+			fprintf(fp, "gfCfgMngMnuItm_View_Clock = %hhd\n\
+				gfCfgMngMnuItm_View_Calendar = %hhd\n\
+				gfCfgMngMnuItm_Config_PicApicSelect = %hhd\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect1  = % hhd\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect2  = % hhd\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect3  = % hhd\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect4  = % hhd\n\
+				gfCfgMngMnuItm_Config_PITDelaySelect5  = % hhd\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect1 = % hhd\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect2 = % hhd\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect3 = % hhd\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect4 = % hhd\n\
+				gfCfgMngMnuItm_Config_ACPIDelaySelect5 = % hhd\n\
+				gfCfgMngMnuItm_Config_DEBURRING = % hhd\n\
+				gidxCfgMngMnuItm_Config_NumSamples = %d\n\
+				gfCfgStr_File_SaveAs = %s\n",
+				
 				gfCfgMngMnuItm_View_Clock,
 				gfCfgMngMnuItm_View_Calendar,
 				gfCfgMngMnuItm_Config_PicApicSelect,
@@ -1548,12 +1918,14 @@ int main(int argc, char** argv)
 				gfCfgMngMnuItm_Config_ACPIDelaySelect4,
 				gfCfgMngMnuItm_Config_ACPIDelaySelect5,
 				gfCfgMngMnuItm_Config_DEBURRING,
+				
+				gidxCfgMngMnuItm_Config_NumSamples,
 
-				gidxCfgMngMnuItm_Config_NumSamples
+				gfCfgStr_File_SaveAs
 
 			);
 			fclose(fp);
-			system("attrib +h tscsync.cfg");
+			system("attrib -a tscsync.cfg");
 		}
 	}
 

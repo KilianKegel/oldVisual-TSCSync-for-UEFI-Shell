@@ -523,17 +523,11 @@ void CTextWindow::TextWindowUpdateProgress(void) {				// update the progress ind
 	
 	static const char* rgstrProgress[] = { "|", "/", "-", "\\" };
 	CTextWindow* pRoot = TextWindowGetRoot();
-	clock_t endclk = CLOCKS_PER_SEC / 16 + clock();
+	static clock_t endclk;
 	#define PRGRSS  pRoot->nProgress
 
-	PRGRSS = (PRGRSS + 1) % ELC(rgstrProgress);
 
-	pRoot->TextPrint({ pRoot->WinDim.X - 3,0 }, EFI_BACKGROUND_LIGHTGRAY + EFI_BLACK, "[%s]", rgstrProgress[PRGRSS]);
-
-	while (endclk > clock())
-		;
-
-	if (1)
+	if (endclk < clock())
 	{
 		extern bool gfCfgMngMnuItm_View_Clock;
 		extern bool gfCfgMngMnuItm_View_Calendar;
@@ -544,6 +538,9 @@ void CTextWindow::TextWindowUpdateProgress(void) {				// update the progress ind
 		char strdatetime[32] = { "" };
 		char strdatetimeRightJustified[32] = { "" };
 
+		PRGRSS = (PRGRSS + 1) % ELC(rgstrProgress);
+		pRoot->TextPrint({ pRoot->WinDim.X - 3,0 }, EFI_BACKGROUND_LIGHTGRAY + EFI_BLACK, "[%s]", rgstrProgress[PRGRSS]);
+
 		strftime(strtime, 32, gfCfgMngMnuItm_View_Clock ? "%H:%M:%S " : "", ptm);				// time string or ""
 		strftime(strdatetime, 32, gfCfgMngMnuItm_View_Calendar ? "%a %d %b %Y " : "", ptm);		// date string or ""
 		strcat(strdatetime, strtime);												// catenate both strings
@@ -551,8 +548,10 @@ void CTextWindow::TextWindowUpdateProgress(void) {				// update the progress ind
 
 
 		pRoot->TextPrint({ pRoot->WinDim.X - 34,0 }, EFI_BACKGROUND_BLUE + EFI_WHITE, "%s", strdatetimeRightJustified);
-	}
 
+		endclk = CLOCKS_PER_SEC / 16 + clock();
+	}
+	
 }
 
 TEXT_KEY CTextWindow::TextGetKey(void) {
@@ -586,6 +585,13 @@ TEXT_KEY CTextWindow::TextGetKey(void) {
 		key = KEY_ENTER;
 	if (0x20 == KeyData.Key.UnicodeChar)
 		key = KEY_SPACE;
+	
+	if (1)
+	{
+		clock_t endclk = CLOCKS_PER_SEC / 16 + clock();
+		while (endclk > clock())
+			continue;
+	}
 
 	return key;
 }

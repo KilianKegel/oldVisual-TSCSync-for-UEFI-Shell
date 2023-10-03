@@ -4,7 +4,7 @@
 #include <conio.h>
 #include <intrin.h>
 
-uint64_t PITClkWait/*pseudo delay upcount*/(uint32_t delay) {
+int64_t PITClkWait/*pseudo delay upcount*/(uint32_t delay) {
 #define COUNTER_WIDTH 16
 //#define COUNTER_INIT  ((1 << COUNTER_WIDTH) - 1) & (uint32_t) - 5                       /* manipulate to random start counts */
 #define COUNTER_DELAY1_REMAINDER(d) (d & (1 << (COUNTER_WIDTH - 2)) - 1)
@@ -57,7 +57,7 @@ uint64_t PITClkWait/*pseudo delay upcount*/(uint32_t delay) {
     if (0x200 & eflags)                                 // restore IF interrupt flag
         _enable();
 
-    return qwTSCEnd - qwTSCStart;
+    return (int64_t)(qwTSCEnd - qwTSCStart);
 }
 
 extern void _disable(void);
