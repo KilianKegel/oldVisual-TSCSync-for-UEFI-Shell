@@ -148,10 +148,10 @@
       <AdditionalDependencies>toroC64.lib;$(SolutionDir)lib\LibWin324UEFI.lib;$(SolutionDir)lib\zlibstat.lib;$(SolutionDir)lib\libxlsxwriter.lib;$(SolutionDir)lib\minizip.lib;$(SolutionDir)lib\tmpfileplus.lib;$(SolutionDir)lib\md5.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Command>
+      <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" k:\</Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Message>
+      <Message>copy /y "$(OutDir)$(TargetName)$(TargetExt)" k:\</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">
