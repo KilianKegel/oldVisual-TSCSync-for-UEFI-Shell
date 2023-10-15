@@ -10,6 +10,8 @@
 
 extern "C" EFI_HANDLE gImageHandle = 0;
 extern "C" EFI_SYSTEM_TABLE * gSystemTable = 0;
+extern "C" void PCIReset(void);
+
 
 CUefiBase::CUefiBase()
 {
@@ -113,6 +115,12 @@ EFI_KEY_DATA CUefiBase::ReadKeyStrokeEx(void)
     if(true == gfKbdDbg)
         GotoXY({ 2,ScrDim.Y - 3 }),
         printf("DBG: SCode %04X UniChar %04X KShiftState %X KToggleState %04X", KeyData.Key.ScanCode, KeyData.Key.UnicodeChar, KeyData.KeyState.KeyShiftState, KeyData.KeyState.KeyToggleState);
-
+    //
+    // emulate ALT-CTRL-DEL
+    //
+    if (0x0008 == KeyData.Key.ScanCode
+        && 0x80000028 == KeyData.KeyState.KeyShiftState
+        && 0x82 == KeyData.KeyState.KeyToggleState)
+        printf("ALT-CTRL-DEL\n"), PCIReset();
     return KeyData;
 }

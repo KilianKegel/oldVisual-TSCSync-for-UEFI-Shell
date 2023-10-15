@@ -129,7 +129,7 @@
       <LanguageStandard_C>Default</LanguageStandard_C>
       <StringPooling>true</StringPooling>
       <DisableSpecificWarnings>4100;%(DisableSpecificWarnings);4996;4189;4005;4804;4458;4162</DisableSpecificWarnings>
-      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)include\x64;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)include;$(SolutionDir)include\x64;$(SolutionDir)Visual-LIBXLSXWRITER-for-UEFI-Shell\libxlsxwriter\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -145,13 +145,13 @@
       <LinkTimeCodeGeneration />
       <AdditionalLibraryDirectories>$(SolutionDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreAllDefaultLibraries>true</IgnoreAllDefaultLibraries>
-      <AdditionalDependencies>toroC64.lib;LibWin324UEFI.lib</AdditionalDependencies>
+      <AdditionalDependencies>toroC64.lib;$(SolutionDir)lib\LibWin324UEFI.lib;$(SolutionDir)lib\zlibstat.lib;$(SolutionDir)lib\libxlsxwriter.lib;$(SolutionDir)lib\minizip.lib;$(SolutionDir)lib\tmpfileplus.lib;$(SolutionDir)lib\md5.lib</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Command>
+      <Command>copy /y "$(OutDir)$(TargetName)$(TargetExt)" k:\</Command>
     </PostBuildEvent>
     <PostBuildEvent>
-      <Message>copy /y "$(OutDir)$(TargetName)$(TargetExt)" e:\</Message>
+      <Message>copy /y "$(OutDir)$(TargetName)$(TargetExt)" k:\</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">
@@ -187,12 +187,15 @@
       <LinkTimeCodeGeneration>
       </LinkTimeCodeGeneration>
       <AdditionalDependencies>kernel32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(SolutionDir)Lib</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="AcpiClkWait.c" />
     <ClCompile Include="main.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>
+    <ClCompile Include="PITClkWait.c" />
     <ClCompile Include="TextWindow.cpp">
       <CompileAs Condition="'$(Configuration)|$(Platform)'=='WINApp|x64'">CompileAsCpp</CompileAs>
     </ClCompile>
